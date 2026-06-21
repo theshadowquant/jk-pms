@@ -548,6 +548,12 @@ export default function PharmacyApp() {
   const [importProgress, setImportProgress] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [activeImportSessionId, setActiveImportSessionId] = useState("");
+  // ── Bulk Sales Import States ──
+  const [previewImportedSales, setPreviewImportedSales] = useState([]);
+  const [showSalesImportDrawer, setShowSalesImportDrawer] = useState(false);
+  const [isImportingSales, setIsImportingSales] = useState(false);
+  const [importSalesProgress, setImportSalesProgress] = useState(0);
+  const [importSalesSearch, setImportSalesSearch] = useState("");
   // ── KEYBOARD POS ──────────────────────────────────────────
   const [searchHighlight, setSearchHighlight] = useState(-1);
   const billSearchRef = useRef(null);
@@ -3155,8 +3161,8 @@ export default function PharmacyApp() {
     const file = e.target.files[0];
     if (!file) return;
     
-    setIsImporting(true);
-    setImportProgress(0);
+    setIsImportingSales(true);
+    setImportSalesProgress(0);
     
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -3169,7 +3175,7 @@ export default function PharmacyApp() {
         
         if (data.length < 2) {
           alert("Import sheet contains no rows.");
-          setIsImporting(false);
+          setIsImportingSales(false);
           return;
         }
         
@@ -3187,277 +3193,350 @@ export default function PharmacyApp() {
           rows.push(rowObj);
         }
         
-        await processSalesImport(rows);
+        // Group rows by BillNo
+        const billsGroup = {};
+        rows.forEach(r => {
+          const billNo = String(r.BillNo || r.billNo || r.billnumber || "").trim();
+          if (!billNo) return;
+          if (!billsGroup[billNo]) billsGroup[billNo] = [];
+          billsGroup[billNo].push(r);
+        });
+
+        // Group rows to bills preview with warnings
+        const previewList = Object.keys(billsGroup).map(billNo => {
+          const rawItems = billsGroup[billNo];
+          const firstRow = rawItems[0];
+          
+          const items = rawItems.map(item => {
+            const itemName = String(item.ItemName || item.itemName || "").trim();
+            const qty = Math.max(1, parseInt(item.Quantity) || 1);
+            
+            const existing = findMedicineByName(itemName);
+            const isNew = !existing;
+            const isShortage = existing ? existing.stockQty < qty : true;
+            
+            return {
+              itemName,
+              qty,
+              category: String(item.Category || item.category || "General").trim(),
+              remarks: String(item.Remarks || item.remarks || "").trim(),
+              isNew,
+              isShortage,
+              estimatedTotal: qty * (existing?.sellingPrice || 120.00)
+            };
+          });
+
+          const totalAmt = items.reduce((sum, item) => sum + item.estimatedTotal, 0);
+          
+          return {
+            billNo,
+            customerName: String(firstRow.CustomerName || firstRow.customerName || "Walk-in Patient").trim(),
+            doctorName: String(firstRow.DoctorName || firstRow.doctorName || "").trim(),
+            prescriptionNo: String(firstRow.PrescriptionNo || firstRow.prescriptionNo || "").trim(),
+            saleType: String(firstRow.SaleType || firstRow.saleType || "Cash").trim(),
+            timestamp: String(firstRow.Timestamp || firstRow.timestamp || "").trim(),
+            items,
+            totalAmount: totalAmt,
+            hasNew: items.some(item => item.isNew),
+            hasShortage: items.some(item => item.isShortage)
+          };
+        });
+
+        setPreviewImportedSales(previewList);
+        setShowSalesImportDrawer(true);
       } catch (err) {
         console.error("Sales import parsing failed:", err);
         alert("Failed to parse file: " + err.message);
-        setIsImporting(false);
       } finally {
+        setIsImportingSales(false);
         e.target.value = "";
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  const processSalesImport = async (rows) => {
-    const billsGroup = {};
-    rows.forEach(r => {
-      const billNo = String(r.BillNo || r.billNo || r.billnumber || "").trim();
-      if (!billNo) return;
-      if (!billsGroup[billNo]) billsGroup[billNo] = [];
-      billsGroup[billNo].push(r);
-    });
+  const commitImportedSales = async () => {
+    if (previewImportedSales.length === 0) return;
+    setIsImportingSales(true);
+    setImportSalesProgress(0);
 
-    const billKeys = Object.keys(billsGroup);
-    const totalBills = billKeys.length;
+    const totalBills = previewImportedSales.length;
     let processedCount = 0;
-    
-    for (const billNo of billKeys) {
-      const billItemsList = billsGroup[billNo];
-      
-      try {
-        await runTransaction(db, async (transaction) => {
-          const resolvedMeds = [];
-          
-          for (const item of billItemsList) {
-            const medName = item.ItemName || item.itemName || "";
-            let medDoc = findMedicineByName(medName);
+    const chunkSize = 20;
+
+    const bills = [...previewImportedSales];
+
+    for (let i = 0; i < bills.length; i += chunkSize) {
+      const chunk = bills.slice(i, i + chunkSize);
+
+      await Promise.all(chunk.map(async (bill) => {
+        const billNo = bill.billNo;
+        const billItemsList = bill.items;
+        
+        try {
+          await runTransaction(db, async (transaction) => {
+            const resolvedMeds = [];
             
-            let medRef = null;
-            let medData = null;
-            let exists = false;
-            
-            if (medDoc) {
-              medRef = doc(db, "medicines", medDoc.id);
-              const snap = await transaction.get(medRef);
-              if (snap.exists()) {
-                medData = snap.data();
-                exists = true;
-              }
-            }
-            
-            if (!exists) {
-              const newRef = doc(collection(db, "medicines"));
-              medRef = newRef;
-              medData = {
-                storeId,
-                storeCode,
-                genericName: medName,
-                brandName: medName,
-                strength: "",
-                form: "Tablet",
-                mrp: 150.00,
-                sellingPrice: 120.00,
-                purchasePrice: 75.00,
-                stockQty: 0,
-                lowStockAlert: 20,
-                gstRate: 12,
-                category: item.Category || "General",
-                batches: [],
-                createdAt: serverTimestamp(),
-                createdBy: user.uid
-              };
-            }
-            
-            resolvedMeds.push({ medRef, medData, exists, item });
-          }
-          
-          const auditLogs = [];
-          
-          for (const resolved of resolvedMeds) {
-            const { medRef, medData, exists, item } = resolved;
-            const reqQty = Math.max(1, parseInt(item.Quantity) || 1);
-            let currentBatches = Array.isArray(medData.batches) ? [...medData.batches] : [];
-            const totalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
-            
-            if (totalStock < reqQty) {
-              const shortage = reqQty - totalStock;
+            // Phase 1: Retrieve medicines & auto-create missing ones
+            for (const item of billItemsList) {
+              const medName = item.itemName;
+              let medDoc = findMedicineByName(medName);
               
-              if (currentBatches.length > 0) {
-                currentBatches[0].quantity = (currentBatches[0].quantity || 0) + shortage;
-              } else {
-                currentBatches.push({
-                  batchNumber: "AUTO-MIG-BATCH",
-                  expiryDate: "2028-12",
-                  purchasePrice: medData.purchasePrice || 75.00,
-                  mrp: medData.mrp || 150.00,
-                  sellingPrice: medData.sellingPrice || 120.00,
-                  quantity: shortage,
-                  isOpeningStock: true,
-                  openingStockDate: new Date().toISOString().split("T")[0]
+              let medRef = null;
+              let medData = null;
+              let exists = false;
+              
+              if (medDoc) {
+                medRef = doc(db, "medicines", medDoc.id);
+                const snap = await transaction.get(medRef);
+                if (snap.exists()) {
+                  medData = snap.data();
+                  exists = true;
+                }
+              }
+              
+              if (!exists) {
+                const newRef = doc(collection(db, "medicines"));
+                medRef = newRef;
+                medData = {
+                  storeId,
+                  storeCode,
+                  genericName: medName,
+                  brandName: medName,
+                  strength: "",
+                  form: "Tablet",
+                  mrp: 150.00,
+                  sellingPrice: 120.00,
+                  purchasePrice: 75.00,
+                  stockQty: 0,
+                  lowStockAlert: 20,
+                  gstRate: 12,
+                  category: item.category || "General",
+                  batches: [],
+                  createdAt: serverTimestamp(),
+                  createdBy: user.uid
+                };
+              }
+              
+              resolvedMeds.push({ medRef, medData, exists, item });
+            }
+            
+            const auditLogs = [];
+            
+            // Phase 2: Handle shortages. Auto-stock missing/short batches
+            for (const resolved of resolvedMeds) {
+              const { medRef, medData, exists, item } = resolved;
+              const reqQty = Math.max(1, item.qty);
+              let currentBatches = Array.isArray(medData.batches) ? medData.batches.map(b => ({ ...b })) : [];
+              const totalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+              
+              if (totalStock < reqQty) {
+                const shortage = reqQty - totalStock;
+                
+                const existingBatchIdx = currentBatches.findIndex(b => b.batchNumber === "AUTO-MIG-BATCH");
+                if (existingBatchIdx >= 0) {
+                  currentBatches[existingBatchIdx].quantity = (currentBatches[existingBatchIdx].quantity || 0) + shortage;
+                } else if (currentBatches.length > 0) {
+                  currentBatches[0].quantity = (currentBatches[0].quantity || 0) + shortage;
+                } else {
+                  currentBatches.push({
+                    batchNumber: "AUTO-MIG-BATCH",
+                    expiryDate: "2028-12",
+                    purchasePrice: medData.purchasePrice || 75.00,
+                    mrp: medData.mrp || 150.00,
+                    sellingPrice: medData.sellingPrice || 120.00,
+                    quantity: shortage,
+                    isOpeningStock: true,
+                    openingStockDate: new Date().toISOString().split("T")[0]
+                  });
+                }
+                
+                const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+                medData.batches = currentBatches;
+                medData.stockQty = newTotalStock;
+                
+                const targetBatchNum = existingBatchIdx >= 0 
+                  ? "AUTO-MIG-BATCH" 
+                  : (currentBatches[0]?.batchNumber || "AUTO-MIG-BATCH");
+
+                auditLogs.push({
+                  type: "OPENING_STOCK",
+                  medicineId: medRef.id,
+                  genericName: medData.genericName,
+                  brandName: medData.brandName || "",
+                  batchNumber: targetBatchNum,
+                  actionSource: "SALES_IMPORT_ADJUST",
+                  quantityChanged: shortage,
+                  previousQuantity: totalStock,
+                  newQuantity: newTotalStock,
+                  purchasePrice: medData.purchasePrice || 75.00
+                });
+              }
+              
+              resolved.medData = medData;
+            }
+            
+            // Phase 3: FEFO Sequenced Deduction & insertion
+            const finalizedItems = [];
+            const billDate = parseTimestamp(bill.timestamp);
+            
+            for (const resolved of resolvedMeds) {
+              const { medRef, medData, exists, item } = resolved;
+              const reqQty = Math.max(1, item.qty);
+              let currentBatches = medData.batches.map(b => ({ ...b }));
+              
+              currentBatches.sort((a, b) => {
+                const [ay, amo] = (a.expiryDate || "2099-12").split("-");
+                const [by, bmo] = (b.expiryDate || "2099-12").split("-");
+                return new Date(+ay, +amo - 1, 1) - new Date(+by, +bmo - 1, 1);
+              });
+              
+              let remaining = reqQty;
+              const batchesUsed = [];
+              
+              for (let batch of currentBatches) {
+                if (remaining <= 0) break;
+                if ((batch.quantity || 0) <= 0) continue;
+                
+                const taken = Math.min(batch.quantity, remaining);
+                batch.quantity -= taken;
+                remaining -= taken;
+                
+                batchesUsed.push({
+                  batchNumber: batch.batchNumber,
+                  expiryDate: batch.expiryDate,
+                  quantity: taken,
+                  purchasePrice: batch.purchasePrice || 0,
+                  sellingPrice: batch.sellingPrice || batch.mrp || 0,
+                  mrp: batch.mrp || 0
                 });
               }
               
               const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
-              medData.batches = currentBatches;
-              medData.stockQty = newTotalStock;
               
-              auditLogs.push({
-                type: "OPENING_STOCK",
+              if (exists) {
+                transaction.update(medRef, {
+                  stockQty: newTotalStock,
+                  batches: currentBatches,
+                  updatedAt: serverTimestamp()
+                });
+              } else {
+                transaction.set(medRef, {
+                  ...medData,
+                  stockQty: newTotalStock,
+                  batches: currentBatches,
+                  createdAt: serverTimestamp()
+                });
+              }
+              
+              const itemMrp = medData.mrp || 150.00;
+              const itemSellPrice = medData.sellingPrice || 120.00;
+              const itemBuyPrice = medData.purchasePrice || 75.00;
+              
+              const gstRate = medData.gstRate || 12;
+              const total = reqQty * itemSellPrice;
+              const taxableValue = total / (1 + (gstRate / 100));
+              const totalGst = total - taxableValue;
+              const itemCogs = reqQty * itemBuyPrice;
+              
+              finalizedItems.push({
                 medicineId: medRef.id,
                 genericName: medData.genericName,
                 brandName: medData.brandName || "",
-                batchNumber: currentBatches[0].batchNumber,
-                actionSource: "SALES_IMPORT_ADJUST",
-                quantityChanged: shortage,
-                previousQuantity: totalStock,
+                strength: medData.strength || "",
+                form: medData.form || "Tablet",
+                quantity: reqQty,
+                mrp: itemMrp,
+                discount: 0,
+                total,
+                gstRate,
+                taxableValue,
+                cgst: totalGst / 2,
+                sgst: totalGst / 2,
+                totalGst,
+                cogs: itemCogs,
+                profit: total - itemCogs,
+                batchesUsed
+              });
+              
+              auditLogs.push({
+                type: "SALE",
+                medicineId: medRef.id,
+                genericName: medData.genericName,
+                brandName: medData.brandName || "",
+                batchNumber: batchesUsed[0]?.batchNumber || "AUTO-MIG-BATCH",
+                quantityChanged: -reqQty,
+                previousQuantity: newTotalStock + reqQty,
                 newQuantity: newTotalStock,
-                purchasePrice: medData.purchasePrice || 75.00
-              });
-            }
-          }
-          
-          const finalizedItems = [];
-          const billDate = parseTimestamp(billItemsList[0].Timestamp);
-          
-          for (const resolved of resolvedMeds) {
-            const { medRef, medData, exists, item } = resolved;
-            const reqQty = Math.max(1, parseInt(item.Quantity) || 1);
-            let currentBatches = [...medData.batches];
-            
-            currentBatches.sort((a, b) => {
-              const [ay, amo] = (a.expiryDate || "2099-12").split("-");
-              const [by, bmo] = (b.expiryDate || "2099-12").split("-");
-              return new Date(+ay, +amo - 1, 1) - new Date(+by, +bmo - 1, 1);
-            });
-            
-            let remaining = reqQty;
-            const batchesUsed = [];
-            
-            for (const batch of currentBatches) {
-              if (remaining <= 0) break;
-              if ((batch.quantity || 0) <= 0) continue;
-              
-              const taken = Math.min(batch.quantity, remaining);
-              batch.quantity -= taken;
-              remaining -= taken;
-              
-              batchesUsed.push({
-                batchNumber: batch.batchNumber,
-                expiryDate: batch.expiryDate,
-                quantity: taken,
-                purchasePrice: batch.purchasePrice || 0,
-                sellingPrice: batch.sellingPrice || batch.mrp || 0,
-                mrp: batch.mrp || 0
+                purchasePrice: itemBuyPrice
               });
             }
             
-            const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+            const subtotalSum = finalizedItems.reduce((a, i) => a + i.total, 0);
+            const taxableSum = finalizedItems.reduce((a, i) => a + i.taxableValue, 0);
+            const gstSum = finalizedItems.reduce((a, i) => a + i.totalGst, 0);
+            const cogsSum = finalizedItems.reduce((a, i) => a + i.cogs, 0);
             
-            if (exists) {
-              transaction.update(medRef, {
-                stockQty: newTotalStock,
-                batches: currentBatches,
-                updatedAt: serverTimestamp()
-              });
-            } else {
-              transaction.set(medRef, {
-                ...medData,
-                stockQty: newTotalStock,
-                batches: currentBatches,
-                createdAt: serverTimestamp()
-              });
-            }
+            const salesColRef = collection(db, "sales");
+            const saleDocRef = doc(salesColRef);
             
-            const itemMrp = medData.mrp || 150.00;
-            const itemSellPrice = medData.sellingPrice || 120.00;
-            const itemBuyPrice = medData.purchasePrice || 75.00;
-            
-            const gstRate = medData.gstRate || 12;
-            const total = reqQty * itemSellPrice;
-            const taxableValue = total / (1 + (gstRate / 100));
-            const totalGst = total - taxableValue;
-            
-            const itemCogs = reqQty * itemBuyPrice;
-            
-            finalizedItems.push({
-              medicineId: medRef.id,
-              genericName: medData.genericName,
-              brandName: medData.brandName || "",
-              strength: medData.strength || "",
-              form: medData.form || "Tablet",
-              mrp: itemMrp,
-              discount: 0,
-              total,
-              gstRate,
-              taxableValue,
-              cgst: totalGst / 2,
-              sgst: totalGst / 2,
-              totalGst,
-              cogs: itemCogs,
-              profit: total - itemCogs,
-              batchesUsed
-            });
-            
-            auditLogs.push({
-              type: "SALE",
-              medicineId: medRef.id,
-              genericName: medData.genericName,
-              brandName: medData.brandName || "",
-              batchNumber: batchesUsed[0]?.batchNumber || "AUTO-MIG-BATCH",
-              quantityChanged: -reqQty,
-              previousQuantity: newTotalStock + reqQty,
-              newQuantity: newTotalStock,
-              purchasePrice: itemBuyPrice
-            });
-          }
-          
-          const subtotalSum = finalizedItems.reduce((a, i) => a + i.total, 0);
-          const taxableSum = finalizedItems.reduce((a, i) => a + i.taxableValue, 0);
-          const gstSum = finalizedItems.reduce((a, i) => a + i.totalGst, 0);
-          const cogsSum = finalizedItems.reduce((a, i) => a + i.cogs, 0);
-          
-          const salesColRef = collection(db, "sales");
-          const saleDocRef = doc(salesColRef);
-          
-          const billData = {
-            storeId,
-            storeCode,
-            billNumber: `Bill-${billNo}`,
-            customerName: billItemsList[0].CustomerName || "Walk-in Patient",
-            customerPhone: "",
-            doctorName: billItemsList[0].DoctorName || "",
-            prescriptionNo: billItemsList[0].PrescriptionNo || "",
-            items: finalizedItems,
-            subtotal: subtotalSum,
-            totalDiscount: 0,
-            taxableAmount: taxableSum,
-            cgstAmount: gstSum / 2,
-            sgstAmount: gstSum / 2,
-            totalGst: gstSum,
-            cogs: cogsSum,
-            profit: subtotalSum - cogsSum,
-            grandTotal: subtotalSum,
-            paymentMode: billItemsList[0].SaleType || "Cash",
-            createdAt: billDate,
-            createdBy: user.uid,
-            isImported: true
-          };
-          
-          transaction.set(saleDocRef, billData);
-          
-          const auditLogsCol = collection(db, "inventory_audit_logs");
-          for (const log of auditLogs) {
-            const logDocRef = doc(auditLogsCol);
-            transaction.set(logDocRef, {
-              ...log,
+            const billData = {
               storeId,
-              referenceId: saleDocRef.id,
-              createdAt: serverTimestamp(),
-              createdBy: user.uid
-            });
-          }
-        });
-        
-        processedCount++;
-        setImportProgress(Math.round((processedCount / totalBills) * 100));
-      } catch (err) {
-        console.error(`Failed to ingest bill #${billNo}:`, err);
+              storeCode,
+              billNumber: `Bill-${billNo}`,
+              customerName: bill.customerName || "Walk-in Patient",
+              customerPhone: "",
+              doctorName: bill.doctorName || "",
+              prescriptionNo: bill.prescriptionNo || "",
+              items: finalizedItems,
+              subtotal: subtotalSum,
+              totalDiscount: 0,
+              taxableAmount: taxableSum,
+              cgstAmount: gstSum / 2,
+              sgstAmount: gstSum / 2,
+              totalGst: gstSum,
+              cogs: cogsSum,
+              profit: subtotalSum - cogsSum,
+              grandTotal: subtotalSum,
+              paymentMode: bill.saleType || "Cash",
+              createdAt: billDate,
+              createdBy: user.uid,
+              isImported: true
+            };
+            
+            transaction.set(saleDocRef, billData);
+            
+            const auditLogsCol = collection(db, "inventory_audit_logs");
+            for (const log of auditLogs) {
+              const logDocRef = doc(auditLogsCol);
+              transaction.set(logDocRef, {
+                ...log,
+                storeId,
+                referenceId: saleDocRef.id,
+                createdAt: serverTimestamp(),
+                createdBy: user.uid
+              });
+            }
+          });
+          
+          processedCount++;
+        } catch (err) {
+          console.error(`Failed to ingest bill #${billNo}:`, err);
+        }
+      }));
+
+      const progress = Math.min(100, Math.round(((i + chunk.length) / totalBills) * 100));
+      setImportSalesProgress(progress);
+      
+      if (i + chunkSize < bills.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
-    
-    setIsImporting(false);
-    alert(`✓ Successfully processed ${processedCount} of ${totalBills} bills from import file.`);
+
+    setIsImportingSales(false);
+    setShowSalesImportDrawer(false);
+    setPreviewImportedSales([]);
+    alert(`✓ Successfully processed and committed ${processedCount} of ${totalBills} bills.`);
   };
 
   const exportReportPDF = exportTaxPDF;
@@ -4383,7 +4462,27 @@ export default function PharmacyApp() {
         {/* BILLING */}
         {!dbLoading && activeTab === "billing" && (
           <div>
-            <PH title="Billing / POS" sub="F2 = Search · ↑↓ Navigate · Enter = Add · F9 = Generate Bill" />
+            <PH 
+              title="Billing / POS" 
+              sub="F2 = Search · ↑↓ Navigate · Enter = Add · F9 = Generate Bill" 
+              action={
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <button style={S.btn("outline")} onClick={downloadSalesTemplate}>
+                    📥 Template
+                  </button>
+                  <input 
+                    type="file" 
+                    accept=".xlsx,.xls,.csv" 
+                    id="salesImportFileInput" 
+                    onChange={handleSalesExcelImport} 
+                    style={{ display: "none" }} 
+                  />
+                  <button style={S.btn("teal")} onClick={() => document.getElementById("salesImportFileInput")?.click()}>
+                    📊 Bulk Import
+                  </button>
+                </div>
+              }
+            />
             {/* KEYBOARD SHORTCUT BAR */}
             <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
               {[["F2", "Focus Search"], ["↑↓", "Navigate"], ["Enter", "Add Item"], ["F9", "Generate Bill"], ["Esc", "Clear Search"]].map(([key, desc]) => (
@@ -6202,6 +6301,143 @@ export default function PharmacyApp() {
               <button style={S.btn("teal")} onClick={saveOpeningStock}>
                 Confirm & Add Stock
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSalesImportDrawer && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(10,35,66,0.5)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          justifyContent: "flex-end",
+          zIndex: 9999,
+          fontFamily: "inherit"
+        }}>
+          <div style={{
+            background: "#fff",
+            width: "100%",
+            maxWidth: 700,
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "-10px 0 30px rgba(0,0,0,0.15)",
+            borderLeft: `1px solid ${C.border}`,
+            position: "relative"
+          }}>
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1.5px solid ${C.border}`, padding: "20px 24px", background: "#F8FAFC" }}>
+              <div>
+                <h3 style={{ fontSize: 18, fontWeight: 800, color: C.navy, margin: 0 }}>📊 Bulk Sales Import Preview</h3>
+                <span style={{ fontSize: 12, color: C.text3 }}>Verify bills, resolve warnings, and commit transactions.</span>
+              </div>
+              <button 
+                onClick={() => { setShowSalesImportDrawer(false); setPreviewImportedSales([]); }} 
+                style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: C.text3 }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Progress bar */}
+            {isImportingSales && (
+              <div style={{ background: "#EBF4FF", padding: "12px 24px", borderBottom: `1.5px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, color: C.blue, marginBottom: 6 }}>
+                  <span>Generating & Committing Bills...</span>
+                  <span>{importSalesProgress}%</span>
+                </div>
+                <div style={{ width: "100%", height: 8, background: "#E2E8F0", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${importSalesProgress}%`, height: "100%", background: C.blue, borderRadius: 4, transition: "width 0.1s" }} />
+                </div>
+              </div>
+            )}
+
+            {/* Search and Stats */}
+            <div style={{ padding: "16px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+              <input 
+                style={{ ...S.input, maxWidth: 300 }} 
+                placeholder="🔍 Filter by Bill No or Patient..." 
+                value={importSalesSearch}
+                onChange={e => setImportSalesSearch(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={S.badge("blue")}>{previewImportedSales.length} Bills</span>
+                {previewImportedSales.some(b => b.hasNew) && <span style={S.badge("red")}>🆕 New Drug(s)</span>}
+                {previewImportedSales.some(b => b.hasShortage) && <span style={S.badge("amber")}>⚠️ Shortage(s)</span>}
+              </div>
+            </div>
+
+            {/* Scrollable list */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 24, display: "flex", flexDirection: "column", gap: 16, background: C.bg }}>
+              {previewImportedSales
+                .filter(b => 
+                  b.billNo.toLowerCase().includes(importSalesSearch.toLowerCase()) || 
+                  b.customerName.toLowerCase().includes(importSalesSearch.toLowerCase())
+                )
+                .map((bill) => (
+                  <div key={bill.billNo} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, borderBottom: `1px solid ${C.border}`, paddingBottom: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>Bill #{bill.billNo}</span>
+                        <span style={{ fontSize: 11, color: C.text3, marginLeft: 8 }}>({bill.timestamp})</span>
+                        <div style={{ fontSize: 12, color: C.text2, marginTop: 4 }}>
+                          👤 Patient: <b>{bill.customerName}</b> {bill.doctorName && ` · Dr: ${bill.doctorName}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: C.blue }}>₹{bill.totalAmount.toFixed(2)}</div>
+                        <span style={{ ...S.badge("teal"), fontSize: 10, marginTop: 4 }}>{bill.saleType}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {bill.items.map((item, idx) => (
+                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 600, color: C.text }}>{item.itemName}</span>
+                            <span style={{ color: C.text3 }}>x {item.qty}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {item.isNew && <span style={{ ...S.badge("red"), fontSize: 9, padding: "1px 6px" }}>🆕 New Drug</span>}
+                            {!item.isNew && item.isShortage && <span style={{ ...S.badge("amber"), fontSize: 9, padding: "1px 6px" }}>⚠️ Shortage</span>}
+                            <span style={{ fontWeight: 600, color: C.text2 }}>₹{item.estimatedTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {/* Footer */}
+            <div style={{ borderTop: `1.5px solid ${C.border}`, padding: "20px 24px", background: "#F8FAFC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.text3, fontWeight: 700, textTransform: "uppercase" }}>Total Est. Revenue</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: C.green }}>
+                  ₹{previewImportedSales.reduce((sum, b) => sum + b.totalAmount, 0).toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button 
+                  style={S.btn("outline")} 
+                  disabled={isImportingSales}
+                  onClick={() => { setShowSalesImportDrawer(false); setPreviewImportedSales([]); }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  style={{ ...S.btn(isImportingSales ? "outline" : "green"), padding: "12px 24px", fontSize: 14 }}
+                  disabled={isImportingSales}
+                  onClick={commitImportedSales}
+                >
+                  {isImportingSales ? "Processing..." : `🚀 Generate & Commit All ${previewImportedSales.length} Bills`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
