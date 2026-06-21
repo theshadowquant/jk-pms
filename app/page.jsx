@@ -554,6 +554,10 @@ export default function PharmacyApp() {
   const [isImportingSales, setIsImportingSales] = useState(false);
   const [importSalesProgress, setImportSalesProgress] = useState(0);
   const [importSalesSearch, setImportSalesSearch] = useState("");
+  // ── Edit Bill States ──
+  const [editBillModalData, setEditBillModalData] = useState(null);
+  const [editBillForm, setEditBillForm] = useState(null);
+  const [editBillSearch, setEditBillSearch] = useState("");
   // ── KEYBOARD POS ──────────────────────────────────────────
   const [searchHighlight, setSearchHighlight] = useState(-1);
   const billSearchRef = useRef(null);
@@ -3539,6 +3543,289 @@ export default function PharmacyApp() {
     alert(`✓ Successfully processed and committed ${processedCount} of ${totalBills} bills.`);
   };
 
+  const handleOpenEditBill = (bill) => {
+    const dateObj = bill.createdAt?.toDate ? bill.createdAt.toDate() : new Date(bill.createdAt || 0);
+    const offset = dateObj.getTimezoneOffset();
+    const localDate = new Date(dateObj.getTime() - (offset * 60 * 1000));
+    const formattedDate = localDate.toISOString().substring(0, 16);
+
+    setEditBillModalData(bill);
+    setEditBillForm({
+      createdAt: formattedDate,
+      customerName: bill.customerName || "",
+      customerPhone: bill.customerPhone || "",
+      doctorName: bill.doctorName || "",
+      prescriptionNo: bill.prescriptionNo || "",
+      paymentMode: bill.paymentMode || "Cash",
+      items: (bill.items || []).map(item => ({
+        medicineId: item.medicineId || "",
+        genericName: item.genericName || "",
+        brandName: item.brandName || "",
+        strength: item.strength || "",
+        form: item.form || "",
+        mrp: item.mrp || 0,
+        sellingPrice: (item.total || 0) / (item.quantity || item.qty || 1),
+        qty: item.quantity || item.qty || 1,
+        discount: item.discount || 0,
+        gstRate: item.gstRate || 12,
+        batchesUsed: item.batchesUsed || []
+      }))
+    });
+  };
+
+  const saveEditedBill = async () => {
+    if (!editBillModalData) return;
+    const originalBill = editBillModalData;
+    const form = editBillForm;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const medIds = new Set();
+        originalBill.items.forEach(i => { if (i.medicineId) medIds.add(i.medicineId); });
+        form.items.forEach(i => { if (i.medicineId) medIds.add(i.medicineId); });
+
+        const medicinesMap = {};
+        for (const medId of medIds) {
+          const medRef = doc(db, "medicines", medId);
+          const snap = await transaction.get(medRef);
+          if (snap.exists()) {
+            medicinesMap[medId] = { ref: medRef, data: snap.data() };
+          }
+        }
+
+        // 1. Revert original stock allocation
+        originalBill.items.forEach(origItem => {
+          const med = medicinesMap[origItem.medicineId];
+          if (med) {
+            let currentBatches = Array.isArray(med.data.batches) ? med.data.batches.map(b => ({ ...b })) : [];
+            const batchesUsed = origItem.batchesUsed || [];
+            
+            if (batchesUsed.length > 0) {
+              batchesUsed.forEach(used => {
+                const bIdx = currentBatches.findIndex(b => b.batchNumber === used.batchNumber);
+                if (bIdx >= 0) {
+                  currentBatches[bIdx].quantity = (currentBatches[bIdx].quantity || 0) + used.quantity;
+                } else {
+                  currentBatches.push({
+                    batchNumber: used.batchNumber,
+                    expiryDate: med.data.expiryDate || "2028-12",
+                    quantity: used.quantity,
+                    mrp: origItem.mrp || med.data.mrp || 0,
+                    sellingPrice: used.sellingPrice || origItem.mrp || med.data.mrp || 0,
+                    purchasePrice: used.purchasePrice || med.data.purchasePrice || 75.00
+                  });
+                }
+              });
+            } else {
+              const soldQty = origItem.quantity || origItem.qty || 1;
+              if (currentBatches.length > 0) {
+                currentBatches[0].quantity = (currentBatches[0].quantity || 0) + soldQty;
+              }
+            }
+
+            med.data.batches = currentBatches;
+            med.data.stockQty = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+          }
+        });
+
+        // 2. Process updated items and allocate stock via FEFO
+        const finalizedItems = [];
+        const auditLogs = [];
+
+        for (const item of form.items) {
+          const med = medicinesMap[item.medicineId];
+          if (!med) {
+            throw new Error(`Medicine "${item.brandName || item.genericName}" not found in database.`);
+          }
+
+          let currentBatches = med.data.batches.map(b => ({ ...b }));
+          let reqQty = item.qty;
+          let totalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+
+          if (totalStock < reqQty) {
+            const shortage = reqQty - totalStock;
+            const existingBatchIdx = currentBatches.findIndex(b => b.batchNumber === "AUTO-MIG-BATCH");
+            if (existingBatchIdx >= 0) {
+              currentBatches[existingBatchIdx].quantity = (currentBatches[existingBatchIdx].quantity || 0) + shortage;
+            } else if (currentBatches.length > 0) {
+              currentBatches[0].quantity = (currentBatches[0].quantity || 0) + shortage;
+            } else {
+              currentBatches.push({
+                batchNumber: "AUTO-MIG-BATCH",
+                expiryDate: "2028-12",
+                purchasePrice: med.data.purchasePrice || 75.00,
+                mrp: med.data.mrp || 150.00,
+                sellingPrice: med.data.sellingPrice || 120.00,
+                quantity: shortage,
+                isOpeningStock: true,
+                openingStockDate: new Date().toISOString().split("T")[0]
+              });
+            }
+
+            totalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+            
+            const targetBatchNum = existingBatchIdx >= 0 
+              ? "AUTO-MIG-BATCH" 
+              : (currentBatches[0]?.batchNumber || "AUTO-MIG-BATCH");
+
+            auditLogs.push({
+              type: "OPENING_STOCK",
+              medicineId: item.medicineId,
+              genericName: med.data.genericName,
+              brandName: med.data.brandName || "",
+              batchNumber: targetBatchNum,
+              actionSource: "SALES_EDIT_ADJUST",
+              quantityChanged: shortage,
+              previousQuantity: totalStock - shortage,
+              newQuantity: totalStock,
+              purchasePrice: med.data.purchasePrice || 75.00
+            });
+          }
+
+          currentBatches.sort((a, b) => {
+            const [ay, amo] = (a.expiryDate || "2099-12").split("-");
+            const [by, bmo] = (b.expiryDate || "2099-12").split("-");
+            return new Date(+ay, +amo - 1, 1) - new Date(+by, +bmo - 1, 1);
+          });
+
+          let remaining = reqQty;
+          const batchesUsed = [];
+
+          for (let batch of currentBatches) {
+            if (remaining <= 0) break;
+            if ((batch.quantity || 0) <= 0) continue;
+
+            const taken = Math.min(batch.quantity, remaining);
+            batch.quantity -= taken;
+            remaining -= taken;
+
+            batchesUsed.push({
+              batchNumber: batch.batchNumber,
+              expiryDate: batch.expiryDate,
+              quantity: taken,
+              purchasePrice: batch.purchasePrice || 0,
+              sellingPrice: item.sellingPrice || batch.sellingPrice || batch.mrp || 0,
+              mrp: batch.mrp || 0
+            });
+          }
+
+          const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+          med.data.batches = currentBatches;
+          med.data.stockQty = newTotalStock;
+
+          const total = reqQty * (item.sellingPrice || item.mrp);
+          const discAmount = total * (item.discount || 0) / 100;
+          const finalTotal = total - discAmount;
+          const gstRate = item.gstRate || 12;
+          const taxableValue = finalTotal / (1 + (gstRate / 100));
+          const totalGst = finalTotal - taxableValue;
+          const itemCogs = batchesUsed.reduce((sum, bu) => sum + (bu.quantity * bu.purchasePrice), 0);
+
+          finalizedItems.push({
+            medicineId: item.medicineId,
+            genericName: item.genericName,
+            brandName: item.brandName || "",
+            strength: item.strength || "",
+            form: item.form || "",
+            quantity: reqQty,
+            mrp: item.mrp,
+            discount: item.discount || 0,
+            total: finalTotal,
+            gstRate,
+            taxableValue,
+            cgst: totalGst / 2,
+            sgst: totalGst / 2,
+            totalGst,
+            cogs: itemCogs,
+            profit: finalTotal - itemCogs,
+            batchesUsed
+          });
+
+          auditLogs.push({
+            type: "SALE",
+            medicineId: item.medicineId,
+            genericName: med.data.genericName,
+            brandName: med.data.brandName || "",
+            batchNumber: batchesUsed[0]?.batchNumber || "AUTO-MIG-BATCH",
+            quantityChanged: -reqQty,
+            previousQuantity: newTotalStock + reqQty,
+            newQuantity: newTotalStock,
+            purchasePrice: med.data.purchasePrice || 75.00
+          });
+        }
+
+        // 3. Write stock updates back to Firestore
+        for (const medId of medIds) {
+          const med = medicinesMap[medId];
+          if (med) {
+            transaction.update(med.ref, {
+              stockQty: med.data.stockQty,
+              batches: med.data.batches,
+              updatedAt: serverTimestamp()
+            });
+          }
+        }
+
+        // 4. Update the Sale document
+        const saleRef = doc(db, "sales", originalBill.id);
+        const subtotalSum = finalizedItems.reduce((a, i) => a + i.total, 0);
+        const taxableSum = finalizedItems.reduce((a, i) => a + i.taxableValue, 0);
+        const gstSum = finalizedItems.reduce((a, i) => a + i.totalGst, 0);
+        const cogsSum = finalizedItems.reduce((a, i) => a + i.cogs, 0);
+
+        const billDate = new Date(form.createdAt);
+
+        const updatedBillData = {
+          customerName: form.customerName || "Walk-in Patient",
+          customerPhone: form.customerPhone || "",
+          doctorName: form.doctorName || "",
+          prescriptionNo: form.prescriptionNo || "",
+          items: finalizedItems,
+          subtotal: subtotalSum,
+          totalDiscount: finalizedItems.reduce((a, i) => a + (i.mrp * i.quantity * i.discount / 100), 0),
+          taxableAmount: taxableSum,
+          cgstAmount: gstSum / 2,
+          sgstAmount: gstSum / 2,
+          totalGst: gstSum,
+          cogs: cogsSum,
+          profit: subtotalSum - cogsSum,
+          grandTotal: subtotalSum,
+          paymentMode: form.paymentMode,
+          createdAt: billDate,
+          updatedAt: serverTimestamp()
+        };
+
+        transaction.update(saleRef, updatedBillData);
+
+        // 5. Write Audit Logs
+        const auditLogsCol = collection(db, "inventory_audit_logs");
+        for (const log of auditLogs) {
+          const logDocRef = doc(auditLogsCol);
+          transaction.set(logDocRef, {
+            ...log,
+            storeId,
+            referenceId: originalBill.id,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid
+          });
+        }
+
+        // Refresh selectedBill view in UI
+        setSelectedBill(prev => ({
+          ...prev,
+          ...updatedBillData,
+          createdAt: { toDate: () => billDate }
+        }));
+      });
+
+      setEditBillModalData(null);
+      alert("✓ Bill successfully updated! Stock levels recalculated.");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update bill: " + err.message);
+    }
+  };
+
   const exportReportPDF = exportTaxPDF;
 
   if (authLoading || (user && profileLoading)) {
@@ -5541,6 +5828,9 @@ export default function PharmacyApp() {
                       {defaultPrintType === "A4" ? "Thermal" : "PDF"}
                     </button>
                     {selectedBill.customerPhone && <button style={S.btn("whatsapp")} onClick={() => sendWhatsApp({ ...selectedBill, date: selectedBill.createdAt?.toDate?.() || new Date() }, selectedBill.customerPhone)}>WhatsApp</button>}
+                    <button style={{ ...S.btn("outline"), borderColor: C.teal, color: C.teal }} onClick={() => handleOpenEditBill(selectedBill)}>
+                      ✏️ Edit Bill
+                    </button>
                     <button style={S.btn("outline")} onClick={() => setSelectedBill(null)}>Close</button>
                   </div>
                 </div>
@@ -6436,6 +6726,302 @@ export default function PharmacyApp() {
                   onClick={commitImportedSales}
                 >
                   {isImportingSales ? "Processing..." : `🚀 Generate & Commit All ${previewImportedSales.length} Bills`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {editBillModalData && editBillForm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(10,35,66,0.5)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          fontFamily: "inherit"
+        }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: 16,
+            width: "90%",
+            maxWidth: 900,
+            height: "90%",
+            maxHeight: 700,
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+            border: `1px solid ${C.border}`,
+            overflow: "hidden"
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1.5px solid ${C.border}`, padding: "16px 24px", background: "#F8FAFC" }}>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: C.navy, margin: 0 }}>✏️ Edit Sales Bill ({editBillModalData.billNumber})</h3>
+                <span style={{ fontSize: 11, color: C.text3 }}>Modify transaction parameters and recalculate inventory.</span>
+              </div>
+              <button 
+                onClick={() => setEditBillModalData(null)} 
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.text3 }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Content - Split layout */}
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              {/* Left Panel - Metadata form fields */}
+              <div style={{ width: "35%", borderRight: `1px solid ${C.border}`, padding: 20, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+                <FF label="Bill Number">
+                  <div style={{ padding: "10px 14px", border: `1.5px solid ${C.border}`, borderRadius: 8, background: "#F8FAFC", fontSize: 13, fontWeight: 600 }}>
+                    {editBillModalData.billNumber}
+                  </div>
+                </FF>
+
+                <FF label="Bill Date & Time *">
+                  <input 
+                    type="datetime-local" 
+                    style={S.input} 
+                    value={editBillForm.createdAt} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, createdAt: e.target.value }))} 
+                  />
+                </FF>
+
+                <FF label="Patient Name">
+                  <input 
+                    style={S.input} 
+                    value={editBillForm.customerName} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, customerName: e.target.value }))} 
+                  />
+                </FF>
+
+                <FF label="Phone / Contact">
+                  <input 
+                    style={S.input} 
+                    value={editBillForm.customerPhone} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, customerPhone: e.target.value }))} 
+                  />
+                </FF>
+
+                <FF label="Doctor Name">
+                  <input 
+                    style={S.input} 
+                    value={editBillForm.doctorName} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, doctorName: e.target.value }))} 
+                  />
+                </FF>
+
+                <FF label="Prescription Number">
+                  <input 
+                    style={S.input} 
+                    value={editBillForm.prescriptionNo} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, prescriptionNo: e.target.value }))} 
+                  />
+                </FF>
+
+                <FF label="Payment Mode">
+                  <select 
+                    style={S.input} 
+                    value={editBillForm.paymentMode} 
+                    onChange={e => setEditBillForm(prev => ({ ...prev, paymentMode: e.target.value }))}
+                  >
+                    {["Cash", "UPI", "Card", "Credit"].map(mode => <option key={mode}>{mode}</option>)}
+                  </select>
+                </FF>
+              </div>
+
+              {/* Right Panel - Items table & Search */}
+              <div style={{ width: "65%", padding: 20, display: "flex", flexDirection: "column", gap: 14, overflow: "hidden" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.navy, textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+                  Bill items & quantities
+                </div>
+
+                {/* Items List Scroll Area */}
+                <div style={{ flex: 1, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 10, background: "#FFF" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "#F8FAFC" }}>
+                        {["Medicine", "Qty", "Price", "Disc%", "Total", ""].map(h => <th key={h} style={{ ...S.th, padding: "8px 10px" }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editBillForm.items.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>
+                            No items in this bill. Search and add below.
+                          </td>
+                        </tr>
+                      ) : (
+                        editBillForm.items.map((item, idx) => {
+                          const total = item.qty * item.sellingPrice;
+                          const disc = total * (item.discount || 0) / 100;
+                          const finalAmt = total - disc;
+
+                          return (
+                            <tr key={idx}>
+                              <td style={{ ...S.td, padding: "8px 10px" }}>
+                                <div style={{ fontWeight: 600 }}>{item.brandName || item.genericName}</div>
+                                <div style={{ fontSize: 10, color: C.text3 }}>{item.genericName}</div>
+                              </td>
+                              <td style={{ ...S.td, padding: "8px 10px" }}>
+                                <input 
+                                  type="number" 
+                                  min="1" 
+                                  style={{ ...S.input, width: 60, padding: "4px 8px" }} 
+                                  value={item.qty} 
+                                  onChange={e => {
+                                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                                    setEditBillForm(prev => {
+                                      const nextItems = [...prev.items];
+                                      nextItems[idx] = { ...nextItems[idx], qty: val };
+                                      return { ...prev, items: nextItems };
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td style={{ ...S.td, padding: "8px 10px" }}>
+                                <input 
+                                  type="number" 
+                                  min="0" 
+                                  step="0.01" 
+                                  style={{ ...S.input, width: 70, padding: "4px 8px" }} 
+                                  value={item.sellingPrice} 
+                                  onChange={e => {
+                                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                    setEditBillForm(prev => {
+                                      const nextItems = [...prev.items];
+                                      nextItems[idx] = { ...nextItems[idx], sellingPrice: val };
+                                      return { ...prev, items: nextItems };
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td style={{ ...S.td, padding: "8px 10px" }}>
+                                <input 
+                                  type="number" 
+                                  min="0" 
+                                  max="100" 
+                                  style={{ ...S.input, width: 55, padding: "4px 8px" }} 
+                                  value={item.discount} 
+                                  onChange={e => {
+                                    const val = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
+                                    setEditBillForm(prev => {
+                                      const nextItems = [...prev.items];
+                                      nextItems[idx] = { ...nextItems[idx], discount: val };
+                                      return { ...prev, items: nextItems };
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td style={{ ...S.td, padding: "8px 10px", fontWeight: 700, color: C.green }}>
+                                ₹{finalAmt.toFixed(2)}
+                              </td>
+                              <td style={{ ...S.td, padding: "8px 10px", textAlign: "right" }}>
+                                <button 
+                                  onClick={() => {
+                                    setEditBillForm(prev => ({
+                                      ...prev,
+                                      items: prev.items.filter((_, i) => i !== idx)
+                                    }));
+                                  }}
+                                  style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 13 }}
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add New Item Search Box */}
+                <div style={{ position: "relative" }}>
+                  <input 
+                    style={S.input} 
+                    placeholder="🔍 Add new medicine to this bill..." 
+                    value={editBillSearch}
+                    onChange={e => setEditBillSearch(e.target.value)}
+                  />
+                  {editBillSearch.length >= 2 && (
+                    <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, background: "#fff", border: `1.5px solid ${C.teal}`, borderRadius: 10, zIndex: 1000, maxHeight: 180, overflowY: "auto", boxShadow: "0 -4px 20px rgba(0,0,0,0.15)" }}>
+                      {medicines
+                        .filter(m => 
+                          (m.genericName || "").toLowerCase().includes(editBillSearch.toLowerCase()) || 
+                          (m.brandName || "").toLowerCase().includes(editBillSearch.toLowerCase())
+                        )
+                        .slice(0, 5)
+                        .map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => {
+                              const activePrice = +m.sellingPrice || +m.mrp || 0;
+                              setEditBillForm(prev => ({
+                                ...prev,
+                                items: [...prev.items, {
+                                  medicineId: m.id,
+                                  genericName: m.genericName,
+                                  brandName: m.brandName || "",
+                                  strength: m.strength || "",
+                                  form: m.form || "",
+                                  mrp: m.mrp || 0,
+                                  sellingPrice: activePrice,
+                                  qty: 1,
+                                  discount: 0,
+                                  gstRate: m.gstRate || 12,
+                                  batchesUsed: []
+                                }]
+                              }));
+                              setEditBillSearch("");
+                            }}
+                            style={{ width: "100%", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 600, color: C.navy }}>{m.genericName}</span>
+                              <span style={{ color: C.text3, fontSize: 11, marginLeft: 8 }}>{m.brandName}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span style={{ fontWeight: 700, color: C.blue }}>₹{m.sellingPrice || m.mrp}</span>
+                              <span style={S.badge(m.stockQty <= 0 ? "red" : "teal")}>Qty: {m.stockQty}</span>
+                            </div>
+                          </button>
+                        ))
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ borderTop: `1.5px solid ${C.border}`, padding: "16px 24px", background: "#F8FAFC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <span style={{ fontSize: 11, color: C.text3, fontWeight: 700, textTransform: "uppercase" }}>New Grand Total</span>
+                <div style={{ fontSize: 20, fontWeight: 800, color: C.green }}>
+                  ₹{editBillForm.items.reduce((sum, item) => sum + (item.qty * item.sellingPrice * (1 - (item.discount || 0) / 100)), 0).toFixed(2)}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button 
+                  style={S.btn("outline")} 
+                  onClick={() => setEditBillModalData(null)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  style={S.btn("teal")} 
+                  onClick={saveEditedBill}
+                  disabled={editBillForm.items.length === 0}
+                >
+                  💾 Save Changes
                 </button>
               </div>
             </div>
