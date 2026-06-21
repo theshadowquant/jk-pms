@@ -166,10 +166,12 @@ function findBestMatch(incomingItem, existingItems) {
 function printThermalReceipt(bill) {
   if (!bill) return;
   const rows = (bill.items || []).map(i => {
-    const name = (i.genericName || "").substring(0, 18).padEnd(18);
+    const name = (i.brandName || i.genericName || "").substring(0, 18).padEnd(18);
     const qty = String(i.quantity || i.qty || 1).padStart(3);
     const total = `Rs.${(i.total || 0).toFixed(2)}`.padStart(10);
-    return `${name}${qty}${total}`;
+    const batchNo = i.batchesUsed?.[0]?.batchNumber || i.batchNumber || "—";
+    const expDate = i.batchesUsed?.[0]?.expiryDate || i.expiryDate || "—";
+    return `${name}${qty}${total}\n  B:${batchNo} Exp:${expDate}`;
   }).join("\n");
   const dateStr = new Date(bill.date || bill.createdAt?.toDate?.() || new Date())
     .toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -207,8 +209,26 @@ function printThermalReceipt(bill) {
       <div style="margin-top:3px;font-size:8px">Powered by JK-PMS</div>
     </div>
   </body></html>`;
-  const w = window.open("", "_blank", "width=320,height=600");
-  if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); w.close(); }, 400); }
+
+  let iframe = document.getElementById("print-thermal-iframe");
+  if (!iframe) {
+    iframe = document.createElement("iframe");
+    iframe.id = "print-thermal-iframe";
+    iframe.style.position = "absolute";
+    iframe.style.width = "0px";
+    iframe.style.height = "0px";
+    iframe.style.border = "none";
+    iframe.style.top = "-9999px";
+    document.body.appendChild(iframe);
+  }
+  const doc = iframe.contentWindow.document || iframe.contentDocument;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  }, 300);
 }
 
 function sendWhatsApp(bill, phone) {
@@ -1838,7 +1858,8 @@ export default function PharmacyApp() {
             genericName: item.genericName,
             brandName: item.brandName || "",
             quantity: item.qty,
-            mrp: item.mrp,
+            mrp: item.originalMrp || item.mrp,
+            sellingPrice: item.mrp,
             discount: item.discount || 0,
             total: c.total,
             gstRate: c.gstRate,
@@ -3062,6 +3083,28 @@ export default function PharmacyApp() {
     if (isWorkerExporting) return;
     setIsWorkerExporting(true);
 
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Generating PDF...</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #F4F6F9; color: #0A2342; }
+              .loader { border: 4px solid #E2E8F0; border-top: 4px solid #0D7377; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 16px; }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+              .text { font-size: 14px; font-weight: 600; }
+            </style>
+          </head>
+          <body>
+            <div class="loader"></div>
+            <div class="text">Generating Invoice PDF, please wait...</div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+
     try {
       const worker = new Worker("/workers/report.worker.js");
       worker.postMessage({ type: "EXPORT_INVOICE_PDF", payload, fileName });
@@ -3071,9 +3114,18 @@ export default function PharmacyApp() {
         if (success) {
           const blob = new Blob([fileData], { type: "application/pdf" });
           const url = URL.createObjectURL(blob);
-          const win = window.open(url, "_blank");
-          if (win) win.focus();
+          if (printWindow && !printWindow.closed) {
+            printWindow.location.href = url;
+          } else {
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
         } else {
+          if (printWindow) printWindow.close();
           alert("Error from Web Worker compiling PDF: " + error);
         }
         setIsWorkerExporting(false);
@@ -3082,12 +3134,14 @@ export default function PharmacyApp() {
       
       worker.onerror = (err) => {
         console.error("Worker error:", err);
+        if (printWindow) printWindow.close();
         alert("Worker PDF invoice compilation failed.");
         setIsWorkerExporting(false);
         worker.terminate();
       };
     } catch (err) {
       console.error("Worker spawn failed", err);
+      if (printWindow) printWindow.close();
       alert("Failed to compile A5 Invoice PDF via Worker.");
       setIsWorkerExporting(false);
     }
@@ -3451,6 +3505,7 @@ export default function PharmacyApp() {
                 form: medData.form || "Tablet",
                 quantity: reqQty,
                 mrp: itemMrp,
+                sellingPrice: itemSellPrice,
                 discount: 0,
                 total,
                 gstRate,
@@ -3564,7 +3619,7 @@ export default function PharmacyApp() {
         strength: item.strength || "",
         form: item.form || "",
         mrp: item.mrp || 0,
-        sellingPrice: (item.total || 0) / (item.quantity || item.qty || 1),
+        sellingPrice: item.sellingPrice || (item.discount > 0 ? item.mrp : ((item.total || 0) / (item.quantity || item.qty || 1))),
         qty: item.quantity || item.qty || 1,
         discount: item.discount || 0,
         gstRate: item.gstRate || 12,
@@ -3729,6 +3784,7 @@ export default function PharmacyApp() {
             form: item.form || "",
             quantity: reqQty,
             mrp: item.mrp,
+            sellingPrice: item.sellingPrice,
             discount: item.discount || 0,
             total: finalTotal,
             gstRate,
@@ -5835,8 +5891,29 @@ export default function PharmacyApp() {
                   </div>
                 </div>
                 <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                  <thead><tr style={{ background:"#F8FAFC" }}>{["Medicine","Qty","Price","Discount","Amount"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
-                  <tbody>{(selectedBill.items||[]).map((item,i)=>(<tr key={i}><td style={S.td}>{item.genericName}</td><td style={S.td}>{item.quantity||item.qty}</td><td style={S.td}>₹{item.mrp}</td><td style={S.td}>{item.discount||0}%</td><td style={{ ...S.td,fontWeight:700,color:C.green }}>₹{(item.total||0).toFixed(2)}</td></tr>))}</tbody>
+                  <thead><tr style={{ background:"#F8FAFC" }}>{["Medicine","Qty","MRP","Unit Price","Discount","Amount"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>{(selectedBill.items||[]).map((item,i)=>{
+                    const batchNo = item.batchesUsed?.[0]?.batchNumber || item.batchNumber || "—";
+                    const expDate = item.batchesUsed?.[0]?.expiryDate || item.expiryDate || "—";
+                    const unitPrice = item.sellingPrice || (item.discount > 0 ? item.mrp : ((item.total || 0) / (item.quantity || item.qty || 1))) || 0;
+                    return (
+                      <tr key={i}>
+                        <td style={S.td}>
+                          <div style={{ fontWeight:600,color:C.navy }}>{item.brandName || item.genericName}</div>
+                          <div style={{ fontSize:11,color:C.text3,marginTop:2 }}>{item.genericName}</div>
+                          <div style={{ fontSize:10,color:C.text3,marginTop:2,display:"flex",gap:10 }}>
+                            <span>Batch: <strong>{batchNo}</strong></span>
+                            <span>Exp: <strong>{expDate}</strong></span>
+                          </div>
+                        </td>
+                        <td style={S.td}>{item.quantity||item.qty}</td>
+                        <td style={S.td}>₹{(item.mrp || 0).toFixed(2)}</td>
+                        <td style={S.td}>₹{unitPrice.toFixed(2)}</td>
+                        <td style={S.td}>{item.discount||0}%</td>
+                        <td style={{ ...S.td,fontWeight:700,color:C.green }}>₹{(item.total||0).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}</tbody>
                 </table>
                 <div style={{ display:"flex",justifyContent:"flex-end",marginTop:12,fontSize:16,fontWeight:700,color:C.navy }}>Grand Total: <span style={{ color:C.green,marginLeft:10 }}>₹{(selectedBill.grandTotal||0).toFixed(2)}</span></div>
               </div>
@@ -6868,6 +6945,11 @@ export default function PharmacyApp() {
                               <td style={{ ...S.td, padding: "8px 10px" }}>
                                 <div style={{ fontWeight: 600 }}>{item.brandName || item.genericName}</div>
                                 <div style={{ fontSize: 10, color: C.text3 }}>{item.genericName}</div>
+                                <div style={{ fontSize: 9, color: C.text3, marginTop: 2, display: "flex", gap: 8 }}>
+                                  <span>Batch: <strong>{item.batchesUsed?.[0]?.batchNumber || item.batchNumber || "—"}</strong></span>
+                                  <span>Exp: <strong>{item.batchesUsed?.[0]?.expiryDate || item.expiryDate || "—"}</strong></span>
+                                  <span>MRP: <strong>₹{item.mrp}</strong></span>
+                                </div>
                               </td>
                               <td style={{ ...S.td, padding: "8px 10px" }}>
                                 <input 

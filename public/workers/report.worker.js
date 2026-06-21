@@ -533,20 +533,23 @@ function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
                 { text: "Batch", style: "th" },
                 { text: "Expiry", style: "th" },
                 { text: "Qty", style: "th", alignment: "right" },
-                { text: "MRP", style: "th", alignment: "right" },
+                { text: "Rate", style: "th", alignment: "right" },
                 { text: "Disc %", style: "th", alignment: "right" },
                 { text: "Total", style: "th", alignment: "right" }
               ],
               ...(bill.items || []).map((item, idx) => {
                 const batchNo = item.batchesUsed?.[0]?.batchNumber || item.batchNumber || "—";
                 const expDate = item.batchesUsed?.[0]?.expiryDate || item.expiryDate || "—";
+                const rate = item.sellingPrice || (item.discount > 0 ? item.mrp : ((item.total || 0) / (item.quantity || item.qty || 1))) || 0;
+                const mrpVal = +item.mrp || 0;
+                const description = `${item.brandName || item.genericName}${mrpVal > 0 ? ` (MRP: ₹${mrpVal.toFixed(2)})` : ""}`;
                 return [
                   { text: idx + 1, fontSize: 6.5 },
-                  { text: `${item.brandName || item.genericName}`, fontSize: 6.5, bold: true },
+                  { text: description, fontSize: 6.5, bold: true },
                   { text: batchNo, fontSize: 6.5 },
                   { text: expDate, fontSize: 6.5 },
                   { text: item.quantity || item.qty || 1, fontSize: 6.5, alignment: "right" },
-                  { text: (item.mrp || 0).toFixed(2), fontSize: 6.5, alignment: "right" },
+                  { text: rate.toFixed(2), fontSize: 6.5, alignment: "right" },
                   { text: `${item.discount || 0}%`, fontSize: 6.5, alignment: "right" },
                   { text: (item.total || 0).toFixed(2), fontSize: 6.5, alignment: "right", bold: true }
                 ];
