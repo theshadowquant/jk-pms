@@ -213,7 +213,10 @@ function printThermalReceipt(bill) {
 
 function sendWhatsApp(bill, phone) {
   if (!phone) return;
-  const text = `*JANAUSHADHI KENDRA, Ranebennur*\nPh: 9964382376\n\n*Bill: ${bill.billNumber}*\nDate: ${new Date(bill.date || new Date()).toLocaleDateString("en-IN")}\n\n${(bill.items || []).map(i => `• ${i.genericName} x${i.quantity || i.qty} = ₹${(i.total || 0).toFixed(2)}`).join("\n")}\n\n*Total: ₹${(bill.grandTotal || 0).toFixed(2)}*\nPayment: ${bill.paymentMode}\n\n_Thank you! Get well soon._ 🙏`;
+  const billId = bill.id || "";
+  const invoiceLinkText = billId ? `\n\n*View Digital Invoice PDF:*\nhttps://jk-pms.vercel.app/invoice/view?id=${billId}` : "";
+  
+  const text = `*JANAUSHADHI KENDRA, Ranebennur*\nPh: 9964382376\n\n*Bill: ${bill.billNumber}*\nDate: ${new Date(bill.date || new Date()).toLocaleDateString("en-IN")}\n\n${(bill.items || []).map(i => `• ${i.brandName || i.genericName} x${i.quantity || i.qty || 1} = ₹${(i.total || 0).toFixed(2)}`).join("\n")}${invoiceLinkText}\n\n*Total: ₹${(bill.grandTotal || 0).toFixed(2)}*\nPayment: ${bill.paymentMode}\n\n_Thank you! Get well soon._ 🙏`;
   const num = phone.replace(/\D/g, "");
   window.open(`https://wa.me/${num.startsWith("91") ? num : "91" + num}?text=${encodeURIComponent(text)}`, "_blank");
 }
@@ -3033,6 +3036,430 @@ export default function PharmacyApp() {
     }
   };
 
+  const printA4PDFInvoice = (bill) => {
+    if (!bill) return;
+    const fileName = `invoice_${bill.billNumber || "draft"}.pdf`;
+    const payload = {
+      bill,
+      storeInfo: {
+        name: storeName || storeDetails?.name || "Janaushadhi Pharmacy",
+        gstin: storeDetails?.gstin || "—",
+        drugLicense: storeDetails?.drugLicense || "—",
+        address: storeDetails?.address || "—"
+      }
+    };
+
+    if (isWorkerExporting) return;
+    setIsWorkerExporting(true);
+
+    try {
+      const worker = new Worker("/workers/report.worker.js");
+      worker.postMessage({ type: "EXPORT_INVOICE_PDF", payload, fileName });
+      
+      worker.onmessage = (e) => {
+        const { success, fileData, error } = e.data;
+        if (success) {
+          const blob = new Blob([fileData], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const win = window.open(url, "_blank");
+          if (win) win.focus();
+        } else {
+          alert("Error from Web Worker compiling PDF: " + error);
+        }
+        setIsWorkerExporting(false);
+        worker.terminate();
+      };
+      
+      worker.onerror = (err) => {
+        console.error("Worker error:", err);
+        alert("Worker PDF invoice compilation failed.");
+        setIsWorkerExporting(false);
+        worker.terminate();
+      };
+    } catch (err) {
+      console.error("Worker spawn failed", err);
+      alert("Failed to compile A5 Invoice PDF via Worker.");
+      setIsWorkerExporting(false);
+    }
+  };
+
+  const downloadSalesTemplate = () => {
+    const csvContent = 
+      "BillNo,ItemName,Quantity,SaleType,Category,Remarks,Timestamp,CustomerName,DoctorName,PrescriptionNo\n" +
+      "1001,Montelukast 10mg + Levocetirizine 5mg (10x1),4,Cash,Allergy,Repeat,21-06-2026 08:20,Customer_001,Dr. Ganesh Mutalik,RX-SAMPLE-00001\n" +
+      "1001,Pantoprazole 40mg,1,Cash,General,OTC,21-06-2026 08:20,Customer_001,Dr. Ganesh Mutalik,RX-SAMPLE-00001\n" +
+      "1002,Cold Combination Tablet,6,Cash,Cold,Seasonal,21-06-2026 08:30,Customer_002,Dr. Manjunath Tuppad,RX-SAMPLE-00002\n";
+      
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pharmacy_sales_import_template.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const findMedicineByName = (name) => {
+    if (!name) return null;
+    const cleanInput = normalizeName(name);
+    
+    // 1. Exact match on brandName or genericName
+    let match = medicines.find(m => 
+      normalizeName(m.brandName) === cleanInput || 
+      normalizeName(m.genericName) === cleanInput
+    );
+    if (match) return match;
+    
+    // 2. Fuzzy match using Levenshtein distance
+    let bestMatch = null;
+    let highestScore = 0;
+    
+    medicines.forEach(m => {
+      const bName = m.brandName || "";
+      const gName = m.genericName || "";
+      const brandScore = 1 - levenshtein(normalizeName(bName), cleanInput) / Math.max(normalizeName(bName).length, cleanInput.length || 1);
+      const genericScore = 1 - levenshtein(normalizeName(gName), cleanInput) / Math.max(normalizeName(gName).length, cleanInput.length || 1);
+      
+      const score = Math.max(brandScore, genericScore);
+      if (score > highestScore) {
+        highestScore = score;
+        bestMatch = m;
+      }
+    });
+    
+    if (highestScore > 0.82) {
+      return bestMatch;
+    }
+    return null;
+  };
+
+  const parseTimestamp = (str) => {
+    if (!str) return new Date();
+    // Format: DD-MM-YYYY HH:mm
+    const parts = String(str).trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{1,2})$/);
+    if (parts) {
+      const day = +parts[1];
+      const month = +parts[2];
+      const year = +parts[3];
+      const hour = +parts[4];
+      const minute = +parts[5];
+      return new Date(year, month - 1, day, hour, minute);
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+
+  const handleSalesExcelImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setIsImporting(true);
+    setImportProgress(0);
+    
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        
+        if (data.length < 2) {
+          alert("Import sheet contains no rows.");
+          setIsImporting(false);
+          return;
+        }
+        
+        const headers = data[0].map(h => String(h || "").trim());
+        const rows = [];
+        
+        for (let i = 1; i < data.length; i++) {
+          const rowData = data[i];
+          if (!rowData || rowData.length === 0) continue;
+          
+          const rowObj = {};
+          headers.forEach((h, colIdx) => {
+            rowObj[h] = rowData[colIdx] !== undefined ? rowData[colIdx] : "";
+          });
+          rows.push(rowObj);
+        }
+        
+        await processSalesImport(rows);
+      } catch (err) {
+        console.error("Sales import parsing failed:", err);
+        alert("Failed to parse file: " + err.message);
+        setIsImporting(false);
+      } finally {
+        e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const processSalesImport = async (rows) => {
+    const billsGroup = {};
+    rows.forEach(r => {
+      const billNo = String(r.BillNo || r.billNo || r.billnumber || "").trim();
+      if (!billNo) return;
+      if (!billsGroup[billNo]) billsGroup[billNo] = [];
+      billsGroup[billNo].push(r);
+    });
+
+    const billKeys = Object.keys(billsGroup);
+    const totalBills = billKeys.length;
+    let processedCount = 0;
+    
+    for (const billNo of billKeys) {
+      const billItemsList = billsGroup[billNo];
+      
+      try {
+        await runTransaction(db, async (transaction) => {
+          const resolvedMeds = [];
+          
+          for (const item of billItemsList) {
+            const medName = item.ItemName || item.itemName || "";
+            let medDoc = findMedicineByName(medName);
+            
+            let medRef = null;
+            let medData = null;
+            let exists = false;
+            
+            if (medDoc) {
+              medRef = doc(db, "medicines", medDoc.id);
+              const snap = await transaction.get(medRef);
+              if (snap.exists()) {
+                medData = snap.data();
+                exists = true;
+              }
+            }
+            
+            if (!exists) {
+              const newRef = doc(collection(db, "medicines"));
+              medRef = newRef;
+              medData = {
+                storeId,
+                storeCode,
+                genericName: medName,
+                brandName: medName,
+                strength: "",
+                form: "Tablet",
+                mrp: 150.00,
+                sellingPrice: 120.00,
+                purchasePrice: 75.00,
+                stockQty: 0,
+                lowStockAlert: 20,
+                gstRate: 12,
+                category: item.Category || "General",
+                batches: [],
+                createdAt: serverTimestamp(),
+                createdBy: user.uid
+              };
+            }
+            
+            resolvedMeds.push({ medRef, medData, exists, item });
+          }
+          
+          const auditLogs = [];
+          
+          for (const resolved of resolvedMeds) {
+            const { medRef, medData, exists, item } = resolved;
+            const reqQty = Math.max(1, parseInt(item.Quantity) || 1);
+            let currentBatches = Array.isArray(medData.batches) ? [...medData.batches] : [];
+            const totalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+            
+            if (totalStock < reqQty) {
+              const shortage = reqQty - totalStock;
+              
+              if (currentBatches.length > 0) {
+                currentBatches[0].quantity = (currentBatches[0].quantity || 0) + shortage;
+              } else {
+                currentBatches.push({
+                  batchNumber: "AUTO-MIG-BATCH",
+                  expiryDate: "2028-12",
+                  purchasePrice: medData.purchasePrice || 75.00,
+                  mrp: medData.mrp || 150.00,
+                  sellingPrice: medData.sellingPrice || 120.00,
+                  quantity: shortage,
+                  isOpeningStock: true,
+                  openingStockDate: new Date().toISOString().split("T")[0]
+                });
+              }
+              
+              const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+              medData.batches = currentBatches;
+              medData.stockQty = newTotalStock;
+              
+              auditLogs.push({
+                type: "OPENING_STOCK",
+                medicineId: medRef.id,
+                genericName: medData.genericName,
+                brandName: medData.brandName || "",
+                batchNumber: currentBatches[0].batchNumber,
+                actionSource: "SALES_IMPORT_ADJUST",
+                quantityChanged: shortage,
+                previousQuantity: totalStock,
+                newQuantity: newTotalStock,
+                purchasePrice: medData.purchasePrice || 75.00
+              });
+            }
+          }
+          
+          const finalizedItems = [];
+          const billDate = parseTimestamp(billItemsList[0].Timestamp);
+          
+          for (const resolved of resolvedMeds) {
+            const { medRef, medData, exists, item } = resolved;
+            const reqQty = Math.max(1, parseInt(item.Quantity) || 1);
+            let currentBatches = [...medData.batches];
+            
+            currentBatches.sort((a, b) => {
+              const [ay, amo] = (a.expiryDate || "2099-12").split("-");
+              const [by, bmo] = (b.expiryDate || "2099-12").split("-");
+              return new Date(+ay, +amo - 1, 1) - new Date(+by, +bmo - 1, 1);
+            });
+            
+            let remaining = reqQty;
+            const batchesUsed = [];
+            
+            for (const batch of currentBatches) {
+              if (remaining <= 0) break;
+              if ((batch.quantity || 0) <= 0) continue;
+              
+              const taken = Math.min(batch.quantity, remaining);
+              batch.quantity -= taken;
+              remaining -= taken;
+              
+              batchesUsed.push({
+                batchNumber: batch.batchNumber,
+                expiryDate: batch.expiryDate,
+                quantity: taken,
+                purchasePrice: batch.purchasePrice || 0,
+                sellingPrice: batch.sellingPrice || batch.mrp || 0,
+                mrp: batch.mrp || 0
+              });
+            }
+            
+            const newTotalStock = currentBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+            
+            if (exists) {
+              transaction.update(medRef, {
+                stockQty: newTotalStock,
+                batches: currentBatches,
+                updatedAt: serverTimestamp()
+              });
+            } else {
+              transaction.set(medRef, {
+                ...medData,
+                stockQty: newTotalStock,
+                batches: currentBatches,
+                createdAt: serverTimestamp()
+              });
+            }
+            
+            const itemMrp = medData.mrp || 150.00;
+            const itemSellPrice = medData.sellingPrice || 120.00;
+            const itemBuyPrice = medData.purchasePrice || 75.00;
+            
+            const gstRate = medData.gstRate || 12;
+            const total = reqQty * itemSellPrice;
+            const taxableValue = total / (1 + (gstRate / 100));
+            const totalGst = total - taxableValue;
+            
+            const itemCogs = reqQty * itemBuyPrice;
+            
+            finalizedItems.push({
+              medicineId: medRef.id,
+              genericName: medData.genericName,
+              brandName: medData.brandName || "",
+              strength: medData.strength || "",
+              form: medData.form || "Tablet",
+              mrp: itemMrp,
+              discount: 0,
+              total,
+              gstRate,
+              taxableValue,
+              cgst: totalGst / 2,
+              sgst: totalGst / 2,
+              totalGst,
+              cogs: itemCogs,
+              profit: total - itemCogs,
+              batchesUsed
+            });
+            
+            auditLogs.push({
+              type: "SALE",
+              medicineId: medRef.id,
+              genericName: medData.genericName,
+              brandName: medData.brandName || "",
+              batchNumber: batchesUsed[0]?.batchNumber || "AUTO-MIG-BATCH",
+              quantityChanged: -reqQty,
+              previousQuantity: newTotalStock + reqQty,
+              newQuantity: newTotalStock,
+              purchasePrice: itemBuyPrice
+            });
+          }
+          
+          const subtotalSum = finalizedItems.reduce((a, i) => a + i.total, 0);
+          const taxableSum = finalizedItems.reduce((a, i) => a + i.taxableValue, 0);
+          const gstSum = finalizedItems.reduce((a, i) => a + i.totalGst, 0);
+          const cogsSum = finalizedItems.reduce((a, i) => a + i.cogs, 0);
+          
+          const salesColRef = collection(db, "sales");
+          const saleDocRef = doc(salesColRef);
+          
+          const billData = {
+            storeId,
+            storeCode,
+            billNumber: `Bill-${billNo}`,
+            customerName: billItemsList[0].CustomerName || "Walk-in Patient",
+            customerPhone: "",
+            doctorName: billItemsList[0].DoctorName || "",
+            prescriptionNo: billItemsList[0].PrescriptionNo || "",
+            items: finalizedItems,
+            subtotal: subtotalSum,
+            totalDiscount: 0,
+            taxableAmount: taxableSum,
+            cgstAmount: gstSum / 2,
+            sgstAmount: gstSum / 2,
+            totalGst: gstSum,
+            cogs: cogsSum,
+            profit: subtotalSum - cogsSum,
+            grandTotal: subtotalSum,
+            paymentMode: billItemsList[0].SaleType || "Cash",
+            createdAt: billDate,
+            createdBy: user.uid,
+            isImported: true
+          };
+          
+          transaction.set(saleDocRef, billData);
+          
+          const auditLogsCol = collection(db, "inventory_audit_logs");
+          for (const log of auditLogs) {
+            const logDocRef = doc(auditLogsCol);
+            transaction.set(logDocRef, {
+              ...log,
+              storeId,
+              referenceId: saleDocRef.id,
+              createdAt: serverTimestamp(),
+              createdBy: user.uid
+            });
+          }
+        });
+        
+        processedCount++;
+        setImportProgress(Math.round((processedCount / totalBills) * 100));
+      } catch (err) {
+        console.error(`Failed to ingest bill #${billNo}:`, err);
+      }
+    }
+    
+    setIsImporting(false);
+    alert(`✓ Successfully processed ${processedCount} of ${totalBills} bills from import file.`);
+  };
+
   const exportReportPDF = exportTaxPDF;
 
   if (authLoading || (user && profileLoading)) {
@@ -5172,6 +5599,49 @@ export default function PharmacyApp() {
                 <button style={{ ...S.btn("primary"), background: "#D35400" }} onClick={exportTaxPDF} disabled={isWorkerExporting}>
                   📄 Export Tax PDF
                 </button>
+              </div>
+            </div>
+
+            {/* IMPORT LEGACY SALES DATA PANEL */}
+            <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "0.5px" }}>📥 IMPORT LEGACY SALES LEDGER</div>
+                <button style={{ ...S.btn("outline"), padding: "6px 12px", fontSize: 11 }} onClick={downloadSalesTemplate}>
+                  📥 Download CSV Template
+                </button>
+              </div>
+              <p style={{ fontSize: 12, color: C.text2, lineHeight: 1.5 }}>
+                Upload a historical sales spreadsheet (.csv or .xlsx) from legacy software (Marg, Tally, Vyapar).
+                Missing medicines are auto-created in the inventory catalog, and stock counts are adjusted automatically to execute compliant billing.
+              </p>
+              
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <input
+                  type="file"
+                  accept=".csv, .xlsx"
+                  style={{ display: "none" }}
+                  id="sales-excel-import-input"
+                  onChange={handleSalesExcelImport}
+                />
+                <button
+                  style={S.btn("teal")}
+                  onClick={() => document.getElementById("sales-excel-import-input").click()}
+                  disabled={isImporting}
+                >
+                  📂 Select & Ingest Sales File
+                </button>
+                
+                {isImporting && (
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.teal, marginBottom: 4 }}>
+                      <span>Ingesting Bills: {importProgress}%</span>
+                      <span>Please keep cashier tab active</span>
+                    </div>
+                    <div style={{ width: "100%", height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ width: `${importProgress}%`, height: "100%", background: C.teal, borderRadius: 3, transition: "width 0.1s" }} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
