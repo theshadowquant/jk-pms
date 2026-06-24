@@ -5,7 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
-import * as XLSX from "xlsx";
+
 
 const STOP_WORDS = [
   "mg", "ml", "tab", "tabs", "tablet", "cap", "capsule",
@@ -389,6 +389,13 @@ export default function PharmacyApp() {
   const [suppliers, setSuppliers] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [now, setNow] = useState(new Date());
+
+  // Collapse sidebar by default on mobile screens
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsSidebarCollapsed(true);
+    }
+  }, []);
   
   // ── SaaS Multi-Tenant States ──
   const [storeId, setStoreId] = useState("");
@@ -1979,6 +1986,7 @@ export default function PharmacyApp() {
     setAiLoading(true);
     setAiStatus("Parsing Excel sheet...");
     try {
+      const XLSX = await import("xlsx");
       const data = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (evt) => {
@@ -2941,6 +2949,7 @@ export default function PharmacyApp() {
     setAiLoading(true);
     setAiStatus("Parsing inventory sheet...");
     try {
+      const XLSX = await import("xlsx");
       const data = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (evt) => {
@@ -4755,7 +4764,7 @@ export default function PharmacyApp() {
     return isNaN(d.getTime()) ? new Date() : d;
   };
 
-  const handleSalesExcelImport = (e) => {
+  const handleSalesExcelImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
@@ -4806,6 +4815,7 @@ export default function PharmacyApp() {
       return str;
     };
     
+    const XLSX = await import("xlsx");
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
@@ -6195,6 +6205,25 @@ export default function PharmacyApp() {
           background: rgba(13, 115, 119, 0.3);
         }
 
+        .main-content-layout {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          height: 100vh;
+          overflow: hidden;
+          margin-left: 240px;
+          transition: margin-left 300ms ease-in-out;
+        }
+        .main-content-layout.collapsed {
+          margin-left: 64px;
+        }
+        @media (max-width: 767px) {
+          .main-content-layout, .main-content-layout.collapsed {
+            margin-left: 0px !important;
+          }
+        }
+
         .drawer {
           position: fixed;
           top: 0;
@@ -6361,25 +6390,51 @@ export default function PharmacyApp() {
         activeTab={activeTab}
       />
 
+      {/* Mobile Sidebar Backdrop Overlay */}
+      {!isSidebarCollapsed && (
+        <div 
+          onClick={() => setIsSidebarCollapsed(true)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.4)",
+            backdropFilter: "blur(4px)",
+            zIndex: 30
+          }}
+          className="md:hidden animate-in fade-in duration-200"
+        />
+      )}
+
       {/* ── Main Content Area ── */}
-      <div style={{ 
-        flex: 1, 
-        display: "flex", 
-        flexDirection: "column", 
-        minWidth: 0, 
-        height: "100vh", 
-        overflow: "hidden",
-        marginLeft: isSidebarCollapsed ? "64px" : "240px",
-        transition: "margin-left 300ms ease-in-out"
-      }}>
+      <div className={`main-content-layout ${isSidebarCollapsed ? "collapsed" : ""}`}>
         
         {/* Scoped Topbar */}
         <header style={{ ...S.topbar, background: "#ffffff", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
-          <div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.5px" }}>Active Store: {storeName}</span>
-            <h2 style={{ fontSize: 18, fontWeight: 800, color: C.navy, marginTop: 2 }}>
-              {TABS.find(t => t.id === activeTab)?.label}
-            </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              style={{ 
+                background: "none", 
+                border: "none", 
+                cursor: "pointer", 
+                fontSize: 22, 
+                color: C.navy,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "4px 8px",
+                marginLeft: -8
+              }}
+              title="Menu"
+            >
+              ☰
+            </button>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.5px" }}>Active Store: {storeName}</span>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: C.navy, marginTop: 2 }}>
+                {TABS.find(t => t.id === activeTab)?.label}
+              </h2>
+            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <span style={{ fontSize: 12, color: C.text3, fontWeight: 600 }}>{now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>

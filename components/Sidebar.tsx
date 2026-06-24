@@ -378,7 +378,11 @@ export default function Sidebar({
         className={`
           fixed left-0 top-0 h-screen bg-[#0f172a] flex flex-col
           transition-all duration-300 ease-in-out z-40
-          ${isCollapsed ? "w-16" : "w-60"}
+          md:translate-x-0
+          ${isCollapsed 
+            ? "w-0 -translate-x-full md:w-16 md:translate-x-0" 
+            : "w-60 translate-x-0"
+          }
         `}
       >
         {/* ─── Logo / Company Header ─── */}
