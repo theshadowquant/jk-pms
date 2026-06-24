@@ -461,132 +461,263 @@ function transformTaxToPDFBuffer(payload, callback, errCallback) {
 
 function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
   try {
-    const { bill, storeInfo } = payload;
+    const { bill, storeInfo, logo, qrCode } = payload;
     
-    let dateStr = "—";
+    let dateStrOnly = "—";
     if (bill.date || bill.createdAt) {
       const d = bill.date ? new Date(bill.date) : (bill.createdAt.seconds ? new Date(bill.createdAt.seconds * 1000) : new Date(bill.createdAt));
-      dateStr = d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      dateStrOnly = d.toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" });
     }
 
+    // Number to words utility
+    function numberToWords(amount) {
+      const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+      const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+      
+      function convertHelper(num) {
+        if (num < 20) return ones[num];
+        if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? " " + ones[num % 10] : "");
+        if (num < 1000) return ones[Math.floor(num / 100)] + " Hundred" + (num % 100 ? " and " + convertHelper(num % 100) : "");
+        if (num < 100000) return convertHelper(Math.floor(num / 1000)) + " Thousand" + (num % 1000 ? " " + convertHelper(num % 1000) : "");
+        if (num < 10000000) return convertHelper(Math.floor(num / 100000)) + " Lakh" + (num % 100000 ? " " + convertHelper(num % 100000) : "");
+        return convertHelper(Math.floor(num / 10000000)) + " Crore" + (num % 10000000 ? " " + convertHelper(num % 10000000) : "");
+      }
+      
+      const totalVal = Math.round(amount);
+      if (totalVal === 0) return "Zero Rupees Only";
+      return convertHelper(totalVal) + " Rupees Only";
+    }
+
+    let totalQty = 0;
+    let totalTaxableVal = 0;
+    let totalCgstAmt = 0;
+    let totalSgstAmt = 0;
+    let totalFinalAmt = 0;
+
+    const itemRows = (bill.items || []).map((item, idx) => {
+      const qty = parseInt(item.quantity || item.qty || 1);
+      const gstRate = parseFloat(item.gstRate || 12);
+      const itemTotal = parseFloat(item.total || 0);
+
+      const gstFraction = gstRate / 100;
+      const taxableValue = itemTotal / (1 + gstFraction); // Taxable value (Amount)
+      const rate = taxableValue / qty; // Taxable rate (Rate)
+      
+      const cgstAmount = taxableValue * (gstRate / 2) / 100;
+      const sgstAmount = taxableValue * (gstRate / 2) / 100;
+      
+      totalQty += qty;
+      totalTaxableVal += taxableValue;
+      totalCgstAmt += cgstAmount;
+      totalSgstAmt += sgstAmount;
+      totalFinalAmt += itemTotal;
+
+      const name = item.brandName || item.genericName || "";
+      const genericStr = item.genericName && item.genericName !== item.brandName ? ` (${item.genericName})` : "";
+      const desc = `${name}${genericStr}`;
+
+      // Retrieve Batch Number and Expiry Date
+      let batchNo = "—";
+      let expDate = "—";
+      if (item.batchesUsed && item.batchesUsed.length > 0) {
+        batchNo = item.batchesUsed.map(b => b.batchNumber || "—").join(", ");
+        expDate = item.batchesUsed.map(b => b.expiryDate || "—").join(", ");
+      } else if (item.batchNumber) {
+        batchNo = item.batchNumber;
+        expDate = item.expiryDate || "—";
+      }
+
+      const mrpVal = parseFloat(item.mrp || item.originalMrp || item.sellingPrice || 0);
+      const discountVal = parseFloat(item.discount || 0);
+
+      return [
+        { text: `${idx + 1}.`, fontSize: 6.5, alignment: "center" },
+        { text: desc, fontSize: 6.5, bold: true },
+        { text: item.hsn || "3004", fontSize: 6.5, alignment: "center" },
+        { text: batchNo, fontSize: 6.5, alignment: "center" },
+        { text: expDate, fontSize: 6.5, alignment: "center" },
+        { text: qty, fontSize: 6.5, alignment: "center" },
+        { text: mrpVal > 0 ? mrpVal.toFixed(2) : "—", fontSize: 6.5, alignment: "right" },
+        { text: discountVal > 0 ? `${discountVal}%` : "—", fontSize: 6.5, alignment: "right" },
+        { text: `${gstRate}%`, fontSize: 6.5, alignment: "center" },
+        { text: taxableValue.toFixed(2), fontSize: 6.5, alignment: "right" },
+        { text: cgstAmount.toFixed(2), fontSize: 6.5, alignment: "right" },
+        { text: sgstAmount.toFixed(2), fontSize: 6.5, alignment: "right" },
+        { text: itemTotal.toFixed(2), fontSize: 6.5, alignment: "right", bold: true }
+      ];
+    });
+
+    const totalRow = [
+      { text: "Total", colSpan: 2, fontSize: 7.5, bold: true },
+      {},
+      { text: "", fontSize: 6.5 },
+      { text: "", fontSize: 6.5 },
+      { text: "", fontSize: 6.5 },
+      { text: totalQty, fontSize: 7.5, bold: true, alignment: "center" },
+      { text: "", fontSize: 6.5 },
+      { text: "", fontSize: 6.5 },
+      { text: "", fontSize: 6.5 },
+      { text: `₹${totalTaxableVal.toFixed(2)}`, fontSize: 7.5, bold: true, alignment: "right" },
+      { text: `₹${totalCgstAmt.toFixed(2)}`, fontSize: 6.5, alignment: "right" },
+      { text: `₹${totalSgstAmt.toFixed(2)}`, fontSize: 6.5, alignment: "right" },
+      { text: `₹${totalFinalAmt.toFixed(2)}`, fontSize: 7.5, bold: true, alignment: "right", color: "#1B7A4E" }
+    ];
+
     const docDefinition = {
-      pageSize: "A5",
-      pageOrientation: "landscape",
-      pageMargins: [20, 20, 20, 20],
+      pageSize: "A4",
+      pageMargins: [30, 30, 30, 35],
       content: [
         {
           columns: [
-            {
-              text: (storeInfo.name || "Janaushadhi Pharmacy").toUpperCase(),
-              fontSize: 11,
-              bold: true,
-              color: "#0A2342"
-            },
-            {
-              text: "TAX INVOICE / CASH MEMO",
-              alignment: "right",
-              fontSize: 10,
-              bold: true,
-              color: "#0D7377"
-            }
+            logo ? { image: logo, width: 60, height: 60 } : { text: "" },
+            { text: "Sales Invoice", alignment: "right", fontSize: 20, bold: true, color: "#0A2342", margin: [0, 15, 0, 0] }
           ]
         },
-        {
-          columns: [
-            {
-              text: [
-                { text: `Lic No: ${storeInfo.drugLicense || "—"}\n`, fontSize: 7 },
-                { text: `GSTIN: ${storeInfo.gstin || "—"}\n`, fontSize: 7 },
-                { text: `Address: ${storeInfo.address || "—"}`, fontSize: 7 }
-              ]
-            },
-            {
-              text: [
-                { text: `Invoice No: `, bold: true }, `${bill.billNumber || "—"}\n`,
-                { text: `Date: `, bold: true }, `${dateStr}\n`,
-                { text: `Payment: `, bold: true }, `${bill.paymentMode || "Cash"}`
-              ],
-              alignment: "right",
-              fontSize: 7
-            }
-          ],
-          margin: [0, 4, 0, 8]
-        },
-        { canvas: [{ type: "line", x1: 0, y1: 0, x2: 380, y2: 0, lineWidth: 1.0, strokeColor: "#0A2342" }], margin: [0, 0, 0, 6] },
-        
-        {
-          columns: [
-            { text: `Patient Name: ${bill.customerName || "Walk-in Patient"}`, fontSize: 7.5, bold: true },
-            { text: `Contact Mobile: ${bill.customerPhone || "—"}`, fontSize: 7.5, alignment: "right" }
-          ],
-          margin: [0, 0, 0, 6]
-        },
-        
+        { canvas: [{ type: "line", x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 1.0, strokeColor: "#0A2342" }], margin: [0, 8, 0, 8] },
         {
           table: {
-            headerRows: 1,
-            widths: ["5%", "35%", "12%", "10%", "8%", "10%", "10%", "10%"],
+            widths: ["32%", "40%", "28%"],
             body: [
               [
-                { text: "#", style: "th" },
-                { text: "Medicine / Description", style: "th" },
-                { text: "Batch", style: "th" },
-                { text: "Expiry", style: "th" },
-                { text: "Qty", style: "th", alignment: "right" },
-                { text: "Rate", style: "th", alignment: "right" },
-                { text: "Disc %", style: "th", alignment: "right" },
-                { text: "Total", style: "th", alignment: "right" }
-              ],
-              ...(bill.items || []).map((item, idx) => {
-                const batchNo = item.batchesUsed?.[0]?.batchNumber || item.batchNumber || "—";
-                const expDate = item.batchesUsed?.[0]?.expiryDate || item.expiryDate || "—";
-                const rate = item.sellingPrice || (item.discount > 0 ? item.mrp : ((item.total || 0) / (item.quantity || item.qty || 1))) || 0;
-                const mrpVal = +item.mrp || 0;
-                const description = `${item.brandName || item.genericName}${mrpVal > 0 ? ` (MRP: ₹${mrpVal.toFixed(2)})` : ""}`;
-                return [
-                  { text: idx + 1, fontSize: 6.5 },
-                  { text: description, fontSize: 6.5, bold: true },
-                  { text: batchNo, fontSize: 6.5 },
-                  { text: expDate, fontSize: 6.5 },
-                  { text: item.quantity || item.qty || 1, fontSize: 6.5, alignment: "right" },
-                  { text: rate.toFixed(2), fontSize: 6.5, alignment: "right" },
-                  { text: `${item.discount || 0}%`, fontSize: 6.5, alignment: "right" },
-                  { text: (item.total || 0).toFixed(2), fontSize: 6.5, alignment: "right", bold: true }
-                ];
-              })
+                {
+                  stack: [
+                    { text: [ { text: "Invoice No #: ", bold: true }, bill.billNumber || "—" ] },
+                    { text: [ { text: "Invoice Date: ", bold: true }, dateStrOnly ] },
+                    { text: [ { text: "Due Date:     ", bold: true }, dateStrOnly ] },
+                    bill.doctorName ? { text: [ { text: "Doctor:       ", bold: true }, bill.doctorName ] } : null,
+                    bill.prescriptionNo ? { text: [ { text: "Prescr. No:   ", bold: true }, bill.prescriptionNo ] } : null
+                  ].filter(Boolean),
+                  fontSize: 7.5,
+                  lineHeight: 1.2
+                },
+                {
+                  stack: [
+                    { text: "Billed By", bold: true, fontSize: 8, color: "#0D7377" },
+                    { text: storeInfo.name || "Pradhan Mantri Bharatiya Janaushadhi Kendra", bold: true },
+                    { text: storeInfo.address || "Taluk General Hospital Premises, Honnalli - Ranebennur,\nState Highway, Ranebennur, Karnataka - 581115" },
+                    { text: `Phone: ${storeInfo.phone || "+91 9964382376"}` }
+                  ],
+                  fontSize: 7.5,
+                  lineHeight: 1.2
+                },
+                {
+                  stack: [
+                    { text: "Billed To", bold: true, fontSize: 8, color: "#0D7377" },
+                    { text: bill.customerName || "Walk-in Patient", bold: true },
+                    { text: "India" },
+                    bill.customerPhone ? { text: `Phone: ${bill.customerPhone}` } : ""
+                  ].filter(Boolean),
+                  fontSize: 7.5,
+                  lineHeight: 1.2
+                }
+              ]
             ]
           },
           layout: {
-            hLineWidth: (i, node) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+            hLineWidth: () => 0.5,
             vLineWidth: () => 0.5,
-            hLineColor: () => "#dddddd",
-            vLineColor: () => "#dddddd"
+            hLineColor: () => "#000000",
+            vLineColor: () => "#000000"
+          },
+          margin: [0, 0, 0, 12]
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: [10, 155, 22, 38, 32, 14, 25, 18, 18, 35, 28, 28, 38],
+            body: [
+              [
+                { text: "#", style: "th", alignment: "center" },
+                { text: "Item Name", style: "th" },
+                { text: "HSN", style: "th", alignment: "center" },
+                { text: "Batch", style: "th", alignment: "center" },
+                { text: "Expiry", style: "th", alignment: "center" },
+                { text: "Qty", style: "th", alignment: "center" },
+                { text: "MRP", style: "th", alignment: "right" },
+                { text: "Disc", style: "th", alignment: "right" },
+                { text: "GST", style: "th", alignment: "center" },
+                { text: "Taxable", style: "th", alignment: "right" },
+                { text: "CGST", style: "th", alignment: "right" },
+                { text: "SGST", style: "th", alignment: "right" },
+                { text: "Total", style: "th", alignment: "right" }
+              ],
+              ...itemRows,
+              totalRow
+            ]
+          },
+          layout: {
+            hLineWidth: (i, node) => (i === 0 || i === 1 || i === node.table.body.length - 1 || i === node.table.body.length ? 1 : 0.5),
+            vLineWidth: () => 0.5,
+            hLineColor: () => "#000000",
+            vLineColor: () => "#000000",
+            paddingLeft: () => 2,
+            paddingRight: () => 2
           }
         },
-        
         {
           columns: [
             {
-              text: "Terms & Conditions:\n1. Medicines once sold cannot be taken back.\n2. Verify batch and expiry before consumption.\n3. Subject to local jurisdiction.",
-              fontSize: 5,
-              color: "#8A96A3",
-              margin: [0, 8, 0, 0]
+              width: "60%",
+              text: [
+                { text: "Total (in words) : ", bold: true, fontSize: 8.5 },
+                { text: numberToWords(totalFinalAmt), fontSize: 8.5, italic: true }
+              ],
+              margin: [0, 10, 0, 0]
             },
             {
+              width: "40%",
               table: {
                 widths: ["60%", "40%"],
                 body: [
-                  [{ text: "Sub Total:", fontSize: 7 }, { text: `₹${(bill.subtotal || 0).toFixed(2)}`, fontSize: 7, alignment: "right" }],
-                  [{ text: "Discount:", fontSize: 7 }, { text: `₹${(bill.totalDiscount || 0).toFixed(2)}`, fontSize: 7, alignment: "right" }],
-                  [{ text: "Taxable Amt:", fontSize: 6.5, color: "#666" }, { text: `₹${(bill.taxableAmount || 0).toFixed(2)}`, fontSize: 6.5, alignment: "right", color: "#666" }],
-                  [{ text: "GST Total:", fontSize: 6.5, color: "#666" }, { text: `₹${(bill.totalGst || 0).toFixed(2)}`, fontSize: 6.5, alignment: "right", color: "#666" }],
-                  [{ text: "Grand Total:", fontSize: 8.5, bold: true, color: "#0A2342" }, { text: `₹${(bill.grandTotal || 0).toFixed(2)}`, fontSize: 8.5, bold: true, alignment: "right", color: "#0A2342" }]
+                  [{ text: "Amount", fontSize: 8, bold: true }, { text: `₹${totalTaxableVal.toFixed(2)}`, fontSize: 8, alignment: "right" }],
+                  [{ text: "CGST", fontSize: 8, bold: true }, { text: `₹${totalCgstAmt.toFixed(2)}`, fontSize: 8, alignment: "right" }],
+                  [{ text: "SGST", fontSize: 8, bold: true }, { text: `₹${totalSgstAmt.toFixed(2)}`, fontSize: 8, alignment: "right" }],
+                  [{ text: "Discounts", fontSize: 8, bold: true }, { text: `₹${(bill.totalDiscount || 0).toFixed(2)}`, fontSize: 8, alignment: "right" }],
+                  [{ text: "Total (INR)", fontSize: 9, bold: true, color: "#0A2342" }, { text: `₹${totalFinalAmt.toFixed(2)}`, fontSize: 9, bold: true, alignment: "right", color: "#1B7A4E" }]
                 ]
               },
-              layout: "noBorders",
-              margin: [0, 4, 0, 0]
+              layout: {
+                hLineWidth: () => 0.5,
+                vLineWidth: () => 0.5,
+                hLineColor: () => "#000000",
+                vLineColor: () => "#000000"
+              },
+              margin: [0, 8, 0, 0]
             }
-          ]
+          ],
+          margin: [0, 0, 0, 15]
+        },
+        {
+          columns: [
+            {
+              width: "60%",
+              stack: [
+                { text: "Terms and Conditions", bold: true, fontSize: 8.5, color: "#0A2342" },
+                { text: "1. Interest will be charged @24% P.A. if bill remains unpaid within due date.", fontSize: 7.5, margin: [0, 3, 0, 0] },
+                { text: "2. Subject To Ranebennur Jurisdictions.", fontSize: 7.5, margin: [0, 3, 0, 0] },
+                { text: "3. Medicines once sold are cannot be taken back (or) exchanged.", fontSize: 7.5, margin: [0, 3, 0, 0] }
+              ]
+            },
+            {
+              width: "40%",
+              alignment: "center",
+              stack: [
+                { text: "Scan to pay via UPI", bold: true, fontSize: 8.5, color: "#0D7377" },
+                { text: "Maximum of 1 lakh can be transferred via upi in a single day", fontSize: 6.5, color: "#8A96A3", margin: [0, 1, 0, 4] },
+                qrCode ? { image: qrCode, width: 80, height: 80 } : { text: "[QR Code Not Available]", fontSize: 7.5 },
+                { text: "7676309842@jupiteraxis", fontSize: 7.5, bold: true, margin: [0, 4, 0, 0] }
+              ]
+            }
+          ],
+          margin: [0, 10, 0, 10]
+        },
+        { canvas: [{ type: "line", x1: 0, y1: 0, x2: 535, y2: 0, lineWidth: 1.0, strokeColor: "#0A2342" }], margin: [0, 10, 0, 10] },
+        {
+          text: "For any enquiry, reach out via email at vishwapmbi@gmail.com, call on +91 9964382376",
+          alignment: "center",
+          fontSize: 8,
+          color: "#4A5568",
+          bold: true
         }
       ],
       styles: {
