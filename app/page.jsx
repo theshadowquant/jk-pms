@@ -9101,8 +9101,45 @@ export default function PharmacyApp() {
                 { label: "CREDIT SALES", value: `₹${rSales.filter(s => s.paymentMode === "Credit").reduce((a, s) => a + (s.grandTotal || 0), 0).toFixed(2)}`, sub: "Outstanding customer dues", accent: C.red, vc: C.red }
               ];
 
+              const isFilteredForPrint = isFiltered && (reportFilters.productQuery || (reportFilters.medicineId && medicines.find(m => m.id === reportFilters.medicineId)));
+              const printTitle = isFilteredForPrint
+                ? `Sales Report – ${reportFilters.productQuery || medicines.find(m => m.id === reportFilters.medicineId)?.brandName || "Product"}`
+                : `Sales Report (${reportFilters.period || "All"})  ·  ${storeDetails?.name || ""}`;
+
               return (
                 <div>
+                  {/* Print-only header */}
+                  <div className="print-only" style={{ display: "none", marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{storeDetails?.name}</div>
+                    <div style={{ fontSize: 12, color: C.text3 }}>Drug Licence: {storeDetails?.drugLicense || "—"} · GSTIN: {storeDetails?.gstin || "—"}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8, borderBottom: "2px solid #000", paddingBottom: 4 }}>{printTitle}</div>
+                  </div>
+
+                  {/* Action bar */}
+                  <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ fontSize: 12, color: C.text2 }}>
+                      {isFiltered ? <><strong>📌 Filtered by product:</strong> {reportFilters.productQuery || medicines.find(m => m.id === reportFilters.medicineId)?.brandName}</> : <span>Showing all sales for selected period</span>}
+                    </div>
+                    <button style={{ ...S.btn("primary"), display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => window.print()}>
+                      🖨️ Print Sales Report
+                    </button>
+                  </div>
+
+                  {/* Print styles for this tab */}
+                  <style>{`
+                    @media print {
+                      body * { visibility: hidden !important; }
+                      .printable-sales-report, .printable-sales-report *, .print-only, .print-only * { visibility: visible !important; }
+                      .printable-sales-report { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 20px !important; }
+                      .print-only { display: block !important; }
+                      .no-print { display: none !important; }
+                      table { font-size: 10px !important; border-collapse: collapse !important; }
+                      th, td { border: 1px solid #000 !important; padding: 4px 6px !important; }
+                      tr { page-break-inside: avoid !important; }
+                    }
+                  `}</style>
+
+                  <div className="printable-sales-report">
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14, marginBottom: 22 }}>
                     {cards.map((card, i) => (
                       <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", borderTop: `3px solid ${card.accent}` }}>
@@ -9164,12 +9201,41 @@ export default function PharmacyApp() {
                     </div>
                   </div>
                 </div>
+                </div>
               </div>
             );
           })()}
 
             {reportsSubTab === "purchase" && (
               <div>
+                <style>{`
+                  @media print {
+                    body * { visibility: hidden !important; }
+                    .printable-purchase-report, .printable-purchase-report *, .print-only-purch, .print-only-purch * { visibility: visible !important; }
+                    .printable-purchase-report { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 20px !important; }
+                    .print-only-purch { display: block !important; }
+                    .no-print { display: none !important; }
+                    table { font-size: 10px !important; border-collapse: collapse !important; }
+                    th, td { border: 1px solid #000 !important; padding: 4px 6px !important; }
+                    tr { page-break-inside: avoid !important; }
+                  }
+                `}</style>
+                <div className="print-only-purch" style={{ display: "none", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: C.navy }}>{storeDetails?.name}</div>
+                  <div style={{ fontSize: 12, color: C.text3 }}>Drug Licence: {storeDetails?.drugLicense || "—"} · GSTIN: {storeDetails?.gstin || "—"}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8, borderBottom: "2px solid #000", paddingBottom: 4 }}>
+                    Purchase Report{reportFilters.productQuery ? ` – ${reportFilters.productQuery}` : ""} · {storeDetails?.name}
+                  </div>
+                </div>
+                <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ fontSize: 12, color: C.text2 }}>
+                    {(reportFilters.productQuery || reportFilters.medicineId) ? <><strong>📌 Filtered by product:</strong> {reportFilters.productQuery || medicines.find(m => m.id === reportFilters.medicineId)?.brandName}</> : <span>Showing all purchases for selected period</span>}
+                  </div>
+                  <button style={{ ...S.btn("primary"), display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => window.print()}>
+                    🖨️ Print Purchase Report
+                  </button>
+                </div>
+                <div className="printable-purchase-report">
                 {(() => {
                   const isFiltered = reportFilters.medicineId || reportFilters.productQuery;
                   let displayTotalPurchases = 0;
@@ -9271,8 +9337,238 @@ export default function PharmacyApp() {
                     </>
                   );
                 })()}
+                </div> {/* close printable-purchase-report */}
               </div>
             )}
+
+            {reportsSubTab === "stock" && (() => {
+              /* ── STOCK TRANSACTION REGISTER ── */
+              const prodLabel = reportFilters.productQuery
+                || medicines.find(m => m.id === reportFilters.medicineId)?.brandName
+                || null;
+
+              // Build unified item-level transaction rows
+              const txns = [];
+
+              purchases.forEach(p => {
+                let d = p.invoiceDate ? new Date(p.invoiceDate) : null;
+                if (!d || isNaN(d.getTime())) d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt || 0);
+                (p.items || []).forEach(item => {
+                  // product filter
+                  if (reportFilters.medicineId) {
+                    const mid = item.medicineId || item.overrideId || item.matchedItem?.id;
+                    if (mid !== reportFilters.medicineId) return;
+                  }
+                  if (reportFilters.productQuery) {
+                    const q = reportFilters.productQuery.toLowerCase();
+                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q)) return;
+                  }
+                  // batch filter
+                  if (reportFilters.batchNo) {
+                    if (!item.batchNumber?.toLowerCase().includes(reportFilters.batchNo.toLowerCase())) return;
+                  }
+                  // date range
+                  if (reportFilters.startDate && d < new Date(reportFilters.startDate)) return;
+                  if (reportFilters.endDate && d > new Date(reportFilters.endDate + "T23:59:59")) return;
+
+                  txns.push({
+                    date: d,
+                    type: "IN",
+                    refNo: p.invoiceNumber || "—",
+                    party: p.supplierName || "—",
+                    name: item.brandName || item.genericName || "—",
+                    genericName: item.genericName || "",
+                    batch: item.batchNumber || "—",
+                    expiry: item.expiryDate || "—",
+                    qty: item.qty || item.quantity || 0,
+                    rate: item.purchasePrice || 0,
+                    value: (item.purchasePrice || 0) * (item.qty || item.quantity || 0),
+                    gst: item.gstRate || 0
+                  });
+                });
+              });
+
+              sales.forEach(s => {
+                const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
+                // date range
+                if (reportFilters.startDate && d < new Date(reportFilters.startDate)) return;
+                if (reportFilters.endDate && d > new Date(reportFilters.endDate + "T23:59:59")) return;
+                (s.items || []).forEach(item => {
+                  if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                  if (reportFilters.productQuery) {
+                    const q = reportFilters.productQuery.toLowerCase();
+                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q)) return;
+                  }
+                  if (reportFilters.batchNo) {
+                    const batchLow = reportFilters.batchNo.toLowerCase();
+                    const match = item.batchNumber?.toLowerCase().includes(batchLow) ||
+                      (item.batchesUsed || []).some(bu => bu.batchNumber?.toLowerCase().includes(batchLow));
+                    if (!match) return;
+                  }
+                  const batchLabel = item.batchesUsed?.length
+                    ? item.batchesUsed.map(b => b.batchNumber).join(", ")
+                    : (item.batchNumber || "—");
+                  txns.push({
+                    date: d,
+                    type: "OUT",
+                    refNo: s.billNumber || "—",
+                    party: s.customerName || "Walk-in Patient",
+                    name: item.brandName || item.genericName || "—",
+                    genericName: item.genericName || "",
+                    batch: batchLabel,
+                    expiry: item.expiryDate || (item.batchesUsed?.[0]?.expiryDate) || "—",
+                    qty: item.quantity || item.qty || 0,
+                    rate: item.mrp || item.sellingPrice || 0,
+                    value: item.total || 0,
+                    gst: item.gstRate || 0
+                  });
+                });
+              });
+
+              // Sort chronologically
+              txns.sort((a, b) => a.date - b.date);
+
+              // Compute running balance
+              let runningQty = 0;
+              const rows = txns.map(t => {
+                if (t.type === "IN") runningQty += t.qty;
+                else runningQty -= t.qty;
+                return { ...t, balance: runningQty };
+              });
+
+              const totalIn  = rows.filter(r => r.type === "IN").reduce((a, r) => a + r.qty, 0);
+              const totalOut = rows.filter(r => r.type === "OUT").reduce((a, r) => a + r.qty, 0);
+              const totalInVal  = rows.filter(r => r.type === "IN").reduce((a, r) => a + r.value, 0);
+              const totalOutVal = rows.filter(r => r.type === "OUT").reduce((a, r) => a + r.value, 0);
+
+              return (
+                <div>
+                  {/* Print styles */}
+                  <style>{`
+                    @media print {
+                      body * { visibility: hidden !important; }
+                      .printable-stock-txn, .printable-stock-txn *, .print-only-stock, .print-only-stock * { visibility: visible !important; }
+                      .printable-stock-txn { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 20px !important; box-shadow: none !important; border: none !important; }
+                      .print-only-stock { display: block !important; }
+                      .no-print { display: none !important; }
+                      table { font-size: 10px !important; border-collapse: collapse !important; width: 100% !important; }
+                      th, td { border: 1px solid #000 !important; padding: 4px 6px !important; }
+                      tr { page-break-inside: avoid !important; }
+                      .bg-in  { background: #F0FDF4 !important; }
+                      .bg-out { background: #FFF5F5 !important; }
+                    }
+                  `}</style>
+
+                  {/* Print-only store header */}
+                  <div className="print-only-stock" style={{ display: "none", marginBottom: 14 }}>
+                    <div style={{ fontSize: 16, fontWeight: 800 }}>{storeDetails?.name}</div>
+                    <div style={{ fontSize: 11, color: "#555" }}>Drug Licence: {storeDetails?.drugLicense || "—"} · GSTIN: {storeDetails?.gstin || "—"} · {storeDetails?.address || ""}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8, borderBottom: "2px solid #000", paddingBottom: 4 }}>
+                      Stock Transaction Register{prodLabel ? ` — ${prodLabel}` : ""}
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>Printed on: {new Date().toLocaleString("en-IN")}</div>
+                  </div>
+
+                  {/* Screen: action bar */}
+                  <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: C.navy }}>📋 Stock Transaction Register</div>
+                      <div style={{ fontSize: 12, color: C.text3, marginTop: 2 }}>
+                        Chronological IN/OUT ledger with running balance
+                        {prodLabel ? <> · <strong style={{ color: C.teal }}>Product: {prodLabel}</strong></> : " · Set a product filter above for a specific item"}
+                      </div>
+                    </div>
+                    <button
+                      style={{ ...S.btn("primary"), display: "inline-flex", alignItems: "center", gap: 6 }}
+                      onClick={() => window.print()}
+                    >
+                      🖨️ Print Stock Transaction Report
+                    </button>
+                  </div>
+
+                  {/* KPI summary strip */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
+                    {[
+                      { label: "TOTAL STOCK IN (QTY)", value: `+${totalIn} units`, color: C.green, bg: "#F0FDF4", border: C.green },
+                      { label: "TOTAL STOCK OUT (QTY)", value: `-${totalOut} units`, color: C.red, bg: "#FFF5F5", border: C.red },
+                      { label: "CLOSING BALANCE", value: `${runningQty} units`, color: runningQty >= 0 ? C.navy : C.red, bg: "#F8FAFC", border: C.border },
+                      { label: "TOTAL PURCHASE VALUE", value: `₹${totalInVal.toFixed(2)}`, color: C.blue, bg: "#EFF6FF", border: C.blue },
+                      { label: "TOTAL SALES VALUE", value: `₹${totalOutVal.toFixed(2)}`, color: C.teal, bg: "#F0FDFA", border: C.teal }
+                    ].map((kpi, i) => (
+                      <div key={i} style={{ background: kpi.bg, border: `1.5px solid ${kpi.border}`, borderRadius: 10, padding: "12px 14px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.text3, letterSpacing: "0.5px", marginBottom: 4 }}>{kpi.label}</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: kpi.color }}>{kpi.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Warn if no product filter */}
+                  {!prodLabel && (
+                    <div className="no-print" style={{ padding: "12px 14px", background: "#FFF8E7", border: "1.5px solid #FCD34D", borderRadius: 8, fontSize: 12, fontWeight: 600, color: "#B45309", marginBottom: 14 }}>
+                      💡 <strong>Tip:</strong> Type a product name in <em>Filter by Product Name</em> above to view its complete inflow/outflow history with running stock balance.
+                    </div>
+                  )}
+
+                  {/* Main ledger table */}
+                  <div style={S.card} className="printable-stock-txn">
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", border: `1px solid ${C.border}`, fontSize: 11.5 }}>
+                        <thead>
+                          <tr style={{ background: "#F1F5F9", borderBottom: `2px solid ${C.border}` }}>
+                            {["Date & Time", "Type", "Doc Ref #", "Party (Supplier/Patient)", "Medicine Name", "Batch No", "Expiry", "Qty IN", "Qty OUT", "Rate (₹)", "Value (₹)", "Stock Balance"].map(h => (
+                              <th key={h} style={{ ...S.th, padding: "7px 8px", whiteSpace: "nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.length === 0 ? (
+                            <tr><td colSpan={12} style={{ ...S.td, textAlign: "center", color: C.text3, padding: "24px 0", fontStyle: "italic" }}>
+                              No transactions found. {!prodLabel && "Set a product filter above to narrow results."}
+                            </td></tr>
+                          ) : (
+                            rows.map((row, idx) => (
+                              <tr key={idx} className={row.type === "IN" ? "bg-in" : "bg-out"} style={{ borderBottom: `1px solid ${C.border}`, background: row.type === "IN" ? "#F0FDF4" : "#FFF5F5" }}>
+                                <td style={{ ...S.td, whiteSpace: "nowrap", fontSize: 11 }}>{row.date.toLocaleString("en-IN")}</td>
+                                <td style={{ ...S.td, fontWeight: 800, color: row.type === "IN" ? C.green : C.red, whiteSpace: "nowrap" }}>
+                                  {row.type === "IN" ? "📥 PURCHASE" : "📤 SALE"}
+                                </td>
+                                <td style={{ ...S.td, fontWeight: 600, color: C.navy }}>{row.refNo}</td>
+                                <td style={S.td}>{row.party}</td>
+                                <td style={S.td}>
+                                  <div style={{ fontWeight: 600, color: C.navy }}>{row.name}</div>
+                                  {row.genericName && row.genericName !== row.name && <div style={{ fontSize: 10, color: C.text3, fontStyle: "italic" }}>{row.genericName}</div>}
+                                </td>
+                                <td style={{ ...S.td, fontFamily: "monospace", fontWeight: 700 }}>{row.batch}</td>
+                                <td style={S.td}>{row.expiry}</td>
+                                <td style={{ ...S.td, fontWeight: 700, color: C.green, textAlign: "center" }}>{row.type === "IN" ? `+${row.qty}` : "—"}</td>
+                                <td style={{ ...S.td, fontWeight: 700, color: C.red, textAlign: "center" }}>{row.type === "OUT" ? `-${row.qty}` : "—"}</td>
+                                <td style={{ ...S.td, textAlign: "right" }}>₹{row.rate.toFixed(2)}</td>
+                                <td style={{ ...S.td, textAlign: "right", fontWeight: 600 }}>₹{row.value.toFixed(2)}</td>
+                                <td style={{ ...S.td, fontWeight: 800, textAlign: "center", color: row.balance < 0 ? C.red : C.navy, background: row.balance < 0 ? "#FEE2E2" : "transparent" }}>
+                                  {row.balance}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                        {rows.length > 0 && (
+                          <tfoot>
+                            <tr style={{ background: "#0A2342", color: "#fff" }}>
+                              <td colSpan={7} style={{ ...S.td, fontWeight: 700, color: "#fff", padding: "8px 10px" }}>TOTALS</td>
+                              <td style={{ ...S.td, fontWeight: 800, color: "#86EFAC", textAlign: "center", padding: "8px 10px" }}>+{totalIn}</td>
+                              <td style={{ ...S.td, fontWeight: 800, color: "#FCA5A5", textAlign: "center", padding: "8px 10px" }}>-{totalOut}</td>
+                              <td style={{ ...S.td, color: "#fff", padding: "8px 10px" }}></td>
+                              <td style={{ ...S.td, fontWeight: 800, color: "#FDE68A", textAlign: "right", padding: "8px 10px" }}>₹{(totalInVal + totalOutVal).toFixed(2)}</td>
+                              <td style={{ ...S.td, fontWeight: 800, color: "#67E8F9", textAlign: "center", padding: "8px 10px" }}>{runningQty} left</td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {reportsSubTab === "gst" && (
               <div>
