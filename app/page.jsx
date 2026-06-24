@@ -375,6 +375,7 @@ const PH = ({ title, sub, action }) => (
 export default function PharmacyApp() {
   const [user, setUser] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showProfit, setShowProfit] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("billing");
   const [doctorName, setDoctorName] = useState("");
@@ -6671,10 +6672,27 @@ export default function PharmacyApp() {
                   </div>
                 );
               })()}
-
-
-
-              {/* Card 6: Nearby Expiry */}
+              {/* Card 5: Monthly Net Profit (Secured View) */}
+              {userRole === "admin" && (
+                <div 
+                  className="kpi-card" 
+                  style={{ "--hover-accent": C.green, cursor: "pointer" }} 
+                  onClick={() => setShowProfit(!showProfit)}
+                  title={showProfit ? "Click to mask profit" : "Click to view profit"}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: C.text3, letterSpacing: "0.5px" }}>MONTHLY NET PROFIT</span>
+                    <span style={{ fontSize: 16 }}>💰</span>
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.green, display: "flex", alignItems: "center", gap: 10 }}>
+                    {showProfit ? `₹${rSales.reduce((a, s) => a + (s.profit || 0), 0).toFixed(2)}` : "₹ •••••"}
+                    <span style={{ fontSize: 14, userSelect: "none" }}>{showProfit ? "🔓" : "🔒"}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>
+                    <span>{showProfit ? "Estimated net profit (GST-adjusted)" : "Secured view (click to reveal)"}</span>
+                  </div>
+                </div>
+              )}              {/* Card 6: Nearby Expiry */}
               <div className="kpi-card" style={{ "--hover-accent": "#B7791F" }} onClick={() => setShowNearbyExpiryModal(true)}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.text3, letterSpacing: "0.5px" }}>NEARBY EXPIRY (&lt;3 MONTHS)</span>
