@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Sidebar from "@/components/Sidebar";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
@@ -373,6 +374,7 @@ const PH = ({ title, sub, action }) => (
 
 export default function PharmacyApp() {
   const [user, setUser] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("billing");
   const [doctorName, setDoctorName] = useState("");
@@ -6325,95 +6327,42 @@ export default function PharmacyApp() {
       `}</style>
       
       {/* ── Sidebar Navigation ── */}
-      <aside style={{ width: 260, background: C.sidebarBg, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0, boxShadow: "4px 0 25px rgba(0,0,0,0.12)", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
-        
-        {/* Store Title Header */}
-        <div style={{ padding: "22px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ ...S.logoMark, width: 34, height: 34, background: "linear-gradient(135deg, #14A085 0%, #0D7377 100%)" }}>JK</div>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", letterSpacing: "-0.3px" }}>JK-PMS</div>
-            <div style={{ fontSize: 10, color: "#6C7A9C", fontWeight: 600 }}>SaaS Pharmacy ERP</div>
-          </div>
-        </div>
-
-        {/* Store Selection & Copy Code */}
-        <div style={{ margin: "16px 20px", padding: "12px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-            🏪 {storeName || "Active Kendra"}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
-            <span style={{ fontSize: 10, fontFamily: "monospace", color: "#6C7A9C", fontWeight: 700 }}>CODE: {storeCode}</span>
-            <button 
-              onClick={() => { navigator.clipboard.writeText(storeCode); alert("Store Code copied to clipboard!"); }}
-              style={{ background: "rgba(255,255,255,0.06)", border: "none", color: C.teal2, fontSize: 10, cursor: "pointer", fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}
-              onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-              onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-              title="Copy Store Code to Invite Staff"
-            >
-              📋 Copy
-            </button>
-          </div>
-        </div>
-
-        {/* Vertical Tab Navigation */}
-        <nav style={{ flex: 1, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 5 }}>
-          {allowedTabs.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button 
-                key={tab.id} 
-                onClick={() => setActiveTab(tab.id)}
-                style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: 12, 
-                  padding: "11px 14px", 
-                  borderRadius: 8, 
-                  border: "none", 
-                  background: isActive ? "rgba(20,160,133,0.15)" : "none", 
-                  color: isActive ? "#ffffff" : C.sidebarText, 
-                  cursor: "pointer", 
-                  fontFamily: "inherit", 
-                  textAlign: "left", 
-                  fontSize: 13, 
-                  fontWeight: isActive ? 700 : 500, 
-                  transition: "all 0.15s",
-                  borderLeft: isActive ? `3px solid ${C.teal2}` : "3px solid transparent"
-                }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "none"; }}
-              >
-                <span style={{ fontSize: 15 }}>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Profile Card Bottom */}
-        <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-              {user.email.split("@")[0]}
-            </div>
-            <div style={{ display: "inline-flex", marginTop: 3 }}>
-              <span style={{ fontSize: 9, fontWeight: 800, background: userRole === "admin" ? "#1B7A4E" : "#1565C0", color: "#fff", padding: "1px 6px", borderRadius: 10, textTransform: "uppercase" }}>
-                {userRole}
-              </span>
-            </div>
-          </div>
-          <button 
-            onClick={() => signOut(auth)} 
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#6C7A9C", fontSize: 14 }}
-            title="Sign Out"
-          >
-            🚪
-          </button>
-        </div>
-      </aside>
+      <Sidebar
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        storeName={storeName}
+        storeCode={storeCode}
+        userRole={userRole}
+        userEmail={user?.email || ""}
+        onSignOut={() => signOut(auth)}
+        onOpenModal={(type) => {
+          if (type === "openingStock") {
+            setActiveTab("inventory");
+            alert("To record an Opening Stock / Balance, click on the 'Opening Stock' button for the desired medicine in the Inventory list.");
+          } else if (type === "payment") {
+            setShowRecordPaymentModal(true);
+          } else if (type === "receipt" || type === "contra" || type === "journal") {
+            setActiveTab("bills");
+          }
+        }}
+        onNavigate={(path) => {
+          const tabId = path.split("/").pop() || "dashboard";
+          setActiveTab(tabId);
+        }}
+        activeTab={activeTab}
+      />
 
       {/* ── Main Content Area ── */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, height: "100vh", overflow: "hidden" }}>
+      <div style={{ 
+        flex: 1, 
+        display: "flex", 
+        flexDirection: "column", 
+        minWidth: 0, 
+        height: "100vh", 
+        overflow: "hidden",
+        marginLeft: isSidebarCollapsed ? "64px" : "240px",
+        transition: "margin-left 300ms ease-in-out"
+      }}>
         
         {/* Scoped Topbar */}
         <header style={{ ...S.topbar, background: "#ffffff", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
