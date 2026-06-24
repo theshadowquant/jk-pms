@@ -6231,15 +6231,18 @@ export default function PharmacyApp() {
           height: 100vh;
           width: 460px;
           background: #ffffff;
-          box-shadow: -10px 0 35px rgba(10, 35, 66, 0.15);
+          box-shadow: none;
           z-index: 9999;
           transform: translateX(100%);
-          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, visibility 0.3s ease;
           display: flex;
           flex-direction: column;
+          visibility: hidden;
         }
         .drawer.open {
           transform: translateX(0);
+          box-shadow: -10px 0 35px rgba(10, 35, 66, 0.15);
+          visibility: visible;
         }
         .drawer-overlay {
           position: fixed;
