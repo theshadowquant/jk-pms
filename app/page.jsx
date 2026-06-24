@@ -600,7 +600,8 @@ export default function PharmacyApp() {
     paymentMode: "",
     period: "month",
     searchText: "",
-    batchNo: ""
+    batchNo: "",
+    productQuery: ""
   });
   const [isWorkerExporting, setIsWorkerExporting] = useState(false);
   const [defaultPrintType, setDefaultPrintType] = useState("A4");
@@ -1855,6 +1856,16 @@ export default function PharmacyApp() {
         if (!hasSupplierMed) return false;
       }
 
+      // Product Name query filter
+      if (reportFilters.productQuery) {
+        const prodLower = reportFilters.productQuery.toLowerCase();
+        const hasProd = (s.items || []).some(item => 
+          item.brandName?.toLowerCase().includes(prodLower) ||
+          item.genericName?.toLowerCase().includes(prodLower)
+        );
+        if (!hasProd) return false;
+      }
+
       // Batch No filter
       if (reportFilters.batchNo) {
         const batchLower = reportFilters.batchNo.toLowerCase();
@@ -1940,6 +1951,16 @@ export default function PharmacyApp() {
           return false;
         });
         if (!hasMed) return false;
+      }
+
+      // Product Name query filter
+      if (reportFilters.productQuery) {
+        const prodLower = reportFilters.productQuery.toLowerCase();
+        const hasProd = (p.items || []).some(item => 
+          item.brandName?.toLowerCase().includes(prodLower) ||
+          item.genericName?.toLowerCase().includes(prodLower)
+        );
+        if (!hasProd) return false;
       }
 
       // Batch No filter
@@ -8840,6 +8861,16 @@ export default function PharmacyApp() {
                 </select>
               </FF>
 
+              <FF label="Filter by Product Name">
+                <input
+                  type="text"
+                  placeholder="Type brand/generic name (e.g. Paracetamol)..."
+                  style={S.input}
+                  value={reportFilters.productQuery || ""}
+                  onChange={e => setReportFilters(f => ({ ...f, productQuery: e.target.value }))}
+                />
+              </FF>
+
               <FF label="Search Patient/Doctor/Bill/Item">
                 <input
                   type="text"
@@ -9021,22 +9052,66 @@ export default function PharmacyApp() {
             )}
 
             {/* sub tab contents */}
-            {reportsSubTab === "sales" && (
-              <div>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:14,marginBottom:22 }}>
-                  {[
-                    { label:"TOTAL SALES",value:`₹${rTS.toFixed(2)}`,sub:`${rSales.length} bills`,accent:C.blue,vc:C.blue },
-                    { label:"CASH SALES",value:`₹${rSales.filter(s=>s.paymentMode==="Cash").reduce((a,s)=>a+(s.grandTotal||0),0).toFixed(2)}`,sub:"Cash collected",accent:"#B7791F",vc:C.amber },
-                    { label:"UPI SALES",value:`₹${rSales.filter(s=>s.paymentMode==="UPI").reduce((a,s)=>a+(s.grandTotal||0),0).toFixed(2)}`,sub:"UPI collections",accent:C.teal,vc:C.teal },
-                    { label:"CREDIT SALES",value:`₹${rSales.filter(s=>s.paymentMode==="Credit").reduce((a,s)=>a+(s.grandTotal||0),0).toFixed(2)}`,sub:"Outstanding customer dues",accent:C.red,vc:C.red }
-                  ].map((card,i)=>(
-                    <div key={i} style={{ background:"#fff",border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`3px solid ${card.accent}` }}>
-                      <div style={{ fontSize:10,fontWeight:700,color:C.text3,letterSpacing:"0.6px",marginBottom:8 }}>{card.label}</div>
-                      <div style={{ fontSize:22,fontWeight:700,color:card.vc,marginBottom:3 }}>{card.value}</div>
-                      <div style={{ fontSize:11,color:C.text3 }}>{card.sub}</div>
-                    </div>
-                  ))}
-                </div>
+            {reportsSubTab === "sales" && (() => {
+              const isFiltered = reportFilters.medicineId || reportFilters.productQuery;
+              let displayTotalSales = 0;
+              let displaySalesCount = 0;
+              let totalQty = 0;
+
+              if (isFiltered) {
+                // Sum of matching items total
+                rSales.forEach(s => {
+                  (s.items || []).forEach(item => {
+                    if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                    if (reportFilters.productQuery) {
+                      const q = reportFilters.productQuery.toLowerCase();
+                      const match = item.brandName?.toLowerCase().includes(q) || item.genericName?.toLowerCase().includes(q);
+                      if (!match) return;
+                    }
+                    displayTotalSales += item.total || 0;
+                    totalQty += item.quantity || item.qty || 1;
+                  });
+                });
+                displaySalesCount = rSales.length;
+              } else {
+                displayTotalSales = rTS;
+                displaySalesCount = rSales.length;
+              }
+
+              const cards = isFiltered ? [
+                { label: "PRODUCT SALES REVENUE", value: `₹${displayTotalSales.toFixed(2)}`, sub: `From ${displaySalesCount} bills`, accent: C.blue, vc: C.blue },
+                { label: "TOTAL QTY SOLD", value: `${totalQty} units`, sub: "Units moved", accent: C.teal, vc: C.teal },
+                { label: "ESTIMATED PRODUCT PROFIT", value: `₹${rSales.reduce((acc, s) => {
+                  let pProf = 0;
+                  (s.items || []).forEach(item => {
+                    if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                    if (reportFilters.productQuery) {
+                      const q = reportFilters.productQuery.toLowerCase();
+                      const match = item.brandName?.toLowerCase().includes(q) || item.genericName?.toLowerCase().includes(q);
+                      if (!match) return;
+                    }
+                    pProf += item.profit || 0;
+                  });
+                  return acc + pProf;
+                }, 0).toFixed(2)}`, sub: "GST-adjusted margin", accent: C.green, vc: C.green }
+              ] : [
+                { label: "TOTAL SALES", value: `₹${rTS.toFixed(2)}`, sub: `${rSales.length} bills`, accent: C.blue, vc: C.blue },
+                { label: "CASH SALES", value: `₹${rSales.filter(s => s.paymentMode === "Cash").reduce((a, s) => a + (s.grandTotal || 0), 0).toFixed(2)}`, sub: "Cash collected", accent: "#B7791F", vc: C.amber },
+                { label: "UPI SALES", value: `₹${rSales.filter(s => s.paymentMode === "UPI").reduce((a, s) => a + (s.grandTotal || 0), 0).toFixed(2)}`, sub: "UPI collections", accent: C.teal, vc: C.teal },
+                { label: "CREDIT SALES", value: `₹${rSales.filter(s => s.paymentMode === "Credit").reduce((a, s) => a + (s.grandTotal || 0), 0).toFixed(2)}`, sub: "Outstanding customer dues", accent: C.red, vc: C.red }
+              ];
+
+              return (
+                <div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14, marginBottom: 22 }}>
+                    {cards.map((card, i) => (
+                      <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", borderTop: `3px solid ${card.accent}` }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.text3, letterSpacing: "0.6px", marginBottom: 8 }}>{card.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: card.vc, marginBottom: 3 }}>{card.value}</div>
+                        <div style={{ fontSize: 11, color: C.text3 }}>{card.sub}</div>
+                      </div>
+                    ))}
+                  </div>
 
                 <div style={{ display:"grid",gridTemplateColumns:"1.2fr 0.8fr",gap:16,marginBottom:22 }}>
                   <div style={S.card}>
@@ -9090,11 +9165,37 @@ export default function PharmacyApp() {
                   </div>
                 </div>
               </div>
-            )}
+            );
+          })()}
 
             {reportsSubTab === "purchase" && (
               <div>
                 {(() => {
+                  const isFiltered = reportFilters.medicineId || reportFilters.productQuery;
+                  let displayTotalPurchases = 0;
+                  let displayPurchCount = 0;
+                  let totalQty = 0;
+
+                  if (isFiltered) {
+                    rPurch.forEach(p => {
+                      (p.items || []).forEach(item => {
+                        const itemMedId = item.medicineId || item.overrideId || item.matchedItem?.id;
+                        if (reportFilters.medicineId && itemMedId !== reportFilters.medicineId) return;
+                        if (reportFilters.productQuery) {
+                          const q = reportFilters.productQuery.toLowerCase();
+                          const match = item.brandName?.toLowerCase().includes(q) || item.genericName?.toLowerCase().includes(q);
+                          if (!match) return;
+                        }
+                        displayTotalPurchases += (item.purchasePrice || 0) * (item.qty || item.quantity || 0);
+                        totalQty += item.qty || item.quantity || 0;
+                      });
+                    });
+                    displayPurchCount = rPurch.length;
+                  } else {
+                    displayTotalPurchases = rTP;
+                    displayPurchCount = rPurch.length;
+                  }
+
                   const totalCgstPaid = rPurch.reduce((acc, p) => {
                     const itemsTax = (p.items || []).reduce((sum, item) => {
                       const rate = item.gstRate || 12;
@@ -9107,19 +9208,24 @@ export default function PharmacyApp() {
                   }, 0);
                   const totalSgstPaid = totalCgstPaid;
 
+                  const cards = isFiltered ? [
+                    { label: "PRODUCT PURCHASE COST", value: `₹${displayTotalPurchases.toFixed(2)}`, sub: `From ${displayPurchCount} invoices`, accent: C.teal, vc: C.teal },
+                    { label: "TOTAL QTY PURCHASED", value: `${totalQty} units`, sub: "Units stocked in", accent: C.blue, vc: C.blue }
+                  ] : [
+                    { label: "TOTAL PURCHASES", value: `₹${rTP.toFixed(2)}`, sub: `${rPurch.length} invoices`, accent: C.teal, vc: C.teal },
+                    { label: "CGST PAID (ITC)", value: `₹${totalCgstPaid.toFixed(2)}`, sub: "Central GST Paid", accent: C.blue, vc: C.blue },
+                    { label: "SGST PAID (ITC)", value: `₹${totalSgstPaid.toFixed(2)}`, sub: "State GST Paid", accent: C.teal2, vc: C.teal2 },
+                    { label: "OUTSTANDING DUES", value: `₹${suppliers.reduce((acc, s) => acc + (s.outstanding || 0), 0).toFixed(2)}`, sub: "Pending supplier payments", accent: C.red, vc: C.red }
+                  ];
+
                   return (
                     <>
-                      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14,marginBottom:22 }}>
-                        {[
-                          { label:"TOTAL PURCHASES",value:`₹${rTP.toFixed(2)}`,sub:`${rPurch.length} invoices`,accent:C.teal,vc:C.teal },
-                          { label:"CGST PAID (ITC)",value:`₹${totalCgstPaid.toFixed(2)}`,sub:"Central GST Paid",accent:C.blue,vc:C.blue },
-                          { label:"SGST PAID (ITC)",value:`₹${totalSgstPaid.toFixed(2)}`,sub:"State GST Paid",accent:C.teal2,vc:C.teal2 },
-                          { label:"OUTSTANDING DUES",value:`₹${suppliers.reduce((acc,s)=>acc+(s.outstanding||0),0).toFixed(2)}`,sub:"Pending supplier payments",accent:C.red,vc:C.red }
-                        ].map((card,i)=>(
-                          <div key={i} style={{ background:"#fff",border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`3px solid ${card.accent}` }}>
-                            <div style={{ fontSize:10,fontWeight:700,color:C.text3,letterSpacing:"0.6px",marginBottom:8 }}>{card.label}</div>
-                            <div style={{ fontSize:22,fontWeight:700,color:card.vc,marginBottom:3 }}>{card.value}</div>
-                            <div style={{ fontSize:11,color:C.text3 }}>{card.sub}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 22 }}>
+                        {cards.map((card, i) => (
+                          <div key={i} style={{ background: "#fff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", borderTop: `3px solid ${card.accent}` }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.text3, letterSpacing: "0.6px", marginBottom: 8 }}>{card.label}</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: card.vc, marginBottom: 3 }}>{card.value}</div>
+                            <div style={{ fontSize: 11, color: C.text3 }}>{card.sub}</div>
                           </div>
                         ))}
                       </div>
@@ -9424,6 +9530,14 @@ export default function PharmacyApp() {
                     (s.items || []).forEach(item => {
                       if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
                       
+                      // Filter by product query
+                      if (reportFilters.productQuery) {
+                        const qLower = reportFilters.productQuery.toLowerCase();
+                        const match = item.brandName?.toLowerCase().includes(qLower) || 
+                                      item.genericName?.toLowerCase().includes(qLower);
+                        if (!match) return;
+                      }
+                      
                       // Filter by batch No
                       if (reportFilters.batchNo) {
                         const batchLower = reportFilters.batchNo.toLowerCase();
@@ -9528,6 +9642,14 @@ export default function PharmacyApp() {
                       const itemMedId = item.medicineId || item.overrideId || item.matchedItem?.id;
                       if (reportFilters.medicineId && itemMedId !== reportFilters.medicineId) return;
                       
+                      // Filter by product query
+                      if (reportFilters.productQuery) {
+                        const qLower = reportFilters.productQuery.toLowerCase();
+                        const match = item.brandName?.toLowerCase().includes(qLower) || 
+                                      item.genericName?.toLowerCase().includes(qLower);
+                        if (!match) return;
+                      }
+                      
                       // Filter by batch
                       if (reportFilters.batchNo) {
                         const batchLower = reportFilters.batchNo.toLowerCase();
@@ -9618,6 +9740,13 @@ export default function PharmacyApp() {
                       const itemMedId = item.medicineId || item.overrideId || item.matchedItem?.id;
                       if (reportFilters.medicineId && itemMedId !== reportFilters.medicineId) return;
                       
+                      // Filter by product query
+                      if (reportFilters.productQuery) {
+                        const q = reportFilters.productQuery.toLowerCase();
+                        const match = item.brandName?.toLowerCase().includes(q) || item.genericName?.toLowerCase().includes(q);
+                        if (!match) return;
+                      }
+                      
                       // Filter by batch
                       if (reportFilters.batchNo) {
                         const batchLower = reportFilters.batchNo.toLowerCase();
@@ -9644,6 +9773,13 @@ export default function PharmacyApp() {
                     const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
                     (s.items || []).forEach(item => {
                       if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                      
+                      // Filter by product query
+                      if (reportFilters.productQuery) {
+                        const q = reportFilters.productQuery.toLowerCase();
+                        const match = item.brandName?.toLowerCase().includes(q) || item.genericName?.toLowerCase().includes(q);
+                        if (!match) return;
+                      }
                       
                       // Filter by batch
                       if (reportFilters.batchNo) {
