@@ -164,7 +164,7 @@ function findBestMatch(incomingItem, existingItems) {
   return { type: "NEW", item: null, score: bestScore };
 }
 
-function printThermalReceipt(bill, storeDetails) {
+async function printThermalReceipt(bill, storeDetails) {
   if (!bill) return;
   const rows = (bill.items || []).map(i => {
     const name = (i.brandName || i.genericName || "").substring(0, 18).padEnd(18);
@@ -174,14 +174,45 @@ function printThermalReceipt(bill, storeDetails) {
     const expDate = i.batchesUsed?.[0]?.expiryDate || i.expiryDate || "—";
     return `${name}${qty}${total}\n  B:${batchNo} Exp:${expDate}`;
   }).join("\n");
+
   const dateStr = new Date(bill.date || bill.createdAt?.toDate?.() || new Date())
     .toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  
-  const sName = storeDetails?.name || "JANAUSHADHI KENDRA";
-  const sAddr = storeDetails?.address || "Ranebennur";
-  const sPhone = storeDetails?.helpline || "9964382376";
-  const sGst = storeDetails?.gstin || "";
-  const sDl = storeDetails?.drugLicense || "";
+
+  const sName  = storeDetails?.name        || "JANAUSHADHI KENDRA";
+  const sAddr  = storeDetails?.address     || "Ranebennur";
+  const sPhone = storeDetails?.helpline    || storeDetails?.phone || "9964382376";
+  const sGst   = storeDetails?.gstin       || "";
+  const sDl    = storeDetails?.drugLicense || "";
+  const upiId  = storeDetails?.upiId       || "7676309842@jupiteraxis";
+  const payeeName = encodeURIComponent(storeDetails?.name || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
+
+  // ── Fetch UPI QR as Base64 ──────────────────────────────
+  let qrBase64 = "";
+  try {
+    const upiData  = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${(bill.grandTotal || 0).toFixed(2)}&cu=INR`;
+    const qrUrl    = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(upiData)}`;
+    const qrRes    = await fetch(qrUrl);
+    if (qrRes.ok) {
+      const blob   = await qrRes.blob();
+      qrBase64     = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror   = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch (e) {
+    console.warn("QR fetch failed for thermal receipt:", e);
+  }
+
+  const qrSection = qrBase64
+    ? `<div class="c" style="margin:8px 0 4px">
+        <div style="font-size:9px;font-weight:bold;margin-bottom:4px">⬇ Scan &amp; Pay via UPI</div>
+        <img src="${qrBase64}" width="100" height="100" style="display:block;margin:0 auto;border:1px solid #ccc"/>
+        <div style="font-size:8px;margin-top:3px;color:#333">${upiId}</div>
+        <div style="font-size:8px;color:#555">Amount: Rs.${(bill.grandTotal || 0).toFixed(2)}</div>
+       </div>`
+    : `<div class="c" style="font-size:8px;margin:6px 0">Pay via UPI: ${upiId}</div>`;
 
   const html = `<html><head><style>
     @page{margin:0;size:58mm auto}*{margin:0;padding:0;box-sizing:border-box}
@@ -197,7 +228,7 @@ function printThermalReceipt(bill, storeDetails) {
     <div class="dline"></div>
     <div class="row"><span>Bill:</span><span class="b">${bill.billNumber || ""}</span></div>
     <div class="row"><span>Date:</span><span>${dateStr}</span></div>
-    ${bill.customerName ? `<div class="row"><span>Patient:</span><span>${bill.customerName}</span></div>` : ""}
+    ${bill.customerName  ? `<div class="row"><span>Patient:</span><span>${bill.customerName}</span></div>`  : ""}
     ${bill.customerPhone ? `<div class="row"><span>Phone:</span><span>${bill.customerPhone}</span></div>` : ""}
     <div class="dline"></div>
     <pre>${"Item".padEnd(18)}Qty${"Amount".padStart(10)}</pre>
@@ -212,7 +243,9 @@ function printThermalReceipt(bill, storeDetails) {
     <div class="dline"></div>
     <div class="row"><span>Payment</span><span class="b">${bill.paymentMode || ""}</span></div>
     <div class="line"></div>
-    <div class="c" style="margin-top:8px;font-size:9px">
+    ${qrSection}
+    <div class="line"></div>
+    <div class="c" style="margin-top:6px;font-size:9px">
       <div>Thank you! Get well soon.</div>
       <div style="margin-top:3px;font-size:8px">Powered by JK-PMS</div>
     </div>
@@ -223,10 +256,10 @@ function printThermalReceipt(bill, storeDetails) {
     iframe = document.createElement("iframe");
     iframe.id = "print-thermal-iframe";
     iframe.style.position = "absolute";
-    iframe.style.width = "0px";
-    iframe.style.height = "0px";
-    iframe.style.border = "none";
-    iframe.style.top = "-9999px";
+    iframe.style.width    = "0px";
+    iframe.style.height   = "0px";
+    iframe.style.border   = "none";
+    iframe.style.top      = "-9999px";
     document.body.appendChild(iframe);
   }
   const doc = iframe.contentWindow.document || iframe.contentDocument;
@@ -236,7 +269,7 @@ function printThermalReceipt(bill, storeDetails) {
   setTimeout(() => {
     iframe.contentWindow.focus();
     iframe.contentWindow.print();
-  }, 300);
+  }, 500);
 }
 
 function sendWhatsApp(bill, phone) {
