@@ -1780,7 +1780,15 @@ export default function PharmacyApp() {
   const filteredBills = billSearchQuery.length >= 2 ? sales.filter(s => s.billNumber?.toLowerCase().includes(billSearchQuery.toLowerCase()) || s.customerName?.toLowerCase().includes(billSearchQuery.toLowerCase()) || s.customerPhone?.includes(billSearchQuery)) : sales.slice(0, 50);
   const filteredMeds = medicines
     .filter(m => (m.genericName || "").toLowerCase().includes(searchQuery.toLowerCase()) || (m.brandName || "").toLowerCase().includes(searchQuery.toLowerCase()) || (m.category || "").toLowerCase().includes(searchQuery.toLowerCase()))
-    .map(m => ({ ...m, marginPct: m.purchasePrice > 0 ? (((m.mrp - m.purchasePrice) / m.mrp) * 100).toFixed(1) : null }));
+    .map(m => {
+      const firstBatch = Array.isArray(m.batches) && m.batches.length > 0 ? m.batches[0] : null;
+      const buyPrice = m.purchasePrice || firstBatch?.purchasePrice || 0;
+      const retailPrice = m.sellingPrice || m.mrp || 0;
+      const gst = parseFloat(m.gstRate) || 12;
+      const buyPriceInclusive = buyPrice * (1 + gst / 100);
+      const marginPct = retailPrice > 0 ? (((retailPrice - buyPriceInclusive) / retailPrice) * 100).toFixed(1) : null;
+      return { ...m, marginPct };
+    });
   // Reorder suggestions: stock at or below threshold
   const reorderList = medicines.filter(m => m.stockQty <= (m.lowStockAlert || 20) && m.stockQty >= 0);
 
