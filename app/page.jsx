@@ -6672,15 +6672,7 @@ export default function PharmacyApp() {
                 );
               })()}
 
-              {/* Card 5: Incentive Received */}
-              <div className="kpi-card" style={{ "--hover-accent": C.green }} onClick={() => setStoreInfoMasterOpen(true)}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: C.text3, letterSpacing: "0.5px" }}>INCENTIVE RECEIVED</span>
-                  <span style={{ fontSize: 16 }}>💵</span>
-                </div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: C.green }}>₹{storeDetails?.incentiveReceived || "1,14,041.00"}</div>
-                <div style={{ fontSize: 11, color: C.teal2, marginTop: 4, fontWeight: 700 }}>⚙️ Edit in Store Info Master</div>
-              </div>
+
 
               {/* Card 6: Nearby Expiry */}
               <div className="kpi-card" style={{ "--hover-accent": "#B7791F" }} onClick={() => setShowNearbyExpiryModal(true)}>
