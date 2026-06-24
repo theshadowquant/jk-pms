@@ -598,7 +598,9 @@ export default function PharmacyApp() {
     supplierName: "",
     medicineId: "",
     paymentMode: "",
-    period: "month"
+    period: "month",
+    searchText: "",
+    batchNo: ""
   });
   const [isWorkerExporting, setIsWorkerExporting] = useState(false);
   const [defaultPrintType, setDefaultPrintType] = useState("A4");
@@ -662,6 +664,8 @@ export default function PharmacyApp() {
   const [isSavingStore, setIsSavingStore] = useState(false);
   // ── Reports Sub Tab ──
   const [reportsSubTab, setReportsSubTab] = useState("sales"); // "sales" | "purchase" | "gst"
+  const [adcSubTab, setAdcSubTab] = useState("sales"); // "sales" | "purchase" | "ledger"
+  const [showBillSuccessModal, setShowBillSuccessModal] = useState(false);
   // ── Supplier Edit Modal ──
   const [supplierEditModalData, setSupplierEditModalData] = useState(null);
   const [newSupplierForm, setNewSupplierForm] = useState({ name: "", phone: "", email: "", gstin: "", address: "", outstanding: "0" });
@@ -1227,7 +1231,7 @@ export default function PharmacyApp() {
         const tB = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
         return tB - tA;
       });
-      setSales(items.slice(0, 100));
+      setSales(items);
       setLastSyncSec(0);
     }, err => handleIndexError(err, "sales"));
 
@@ -1239,7 +1243,7 @@ export default function PharmacyApp() {
         const tB = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
         return tB - tA;
       });
-      setPurchases(items.slice(0, 100));
+      setPurchases(items);
       setLastSyncSec(0);
     }, err => handleIndexError(err, "purchases"));
 
@@ -1850,6 +1854,31 @@ export default function PharmacyApp() {
         });
         if (!hasSupplierMed) return false;
       }
+
+      // Batch No filter
+      if (reportFilters.batchNo) {
+        const batchLower = reportFilters.batchNo.toLowerCase();
+        const hasBatch = (s.items || []).some(item => {
+          if (item.batchNumber?.toLowerCase().includes(batchLower)) return true;
+          if (item.batchesUsed && item.batchesUsed.some(bu => bu.batchNumber?.toLowerCase().includes(batchLower))) return true;
+          return false;
+        });
+        if (!hasBatch) return false;
+      }
+
+      // Search text filter (Patient, Doctor, Bill No, Medicine)
+      if (reportFilters.searchText) {
+        const queryLower = reportFilters.searchText.toLowerCase();
+        const billNoMatch = s.billNumber?.toLowerCase().includes(queryLower);
+        const patientMatch = s.customerName?.toLowerCase().includes(queryLower);
+        const doctorMatch = s.doctorName?.toLowerCase().includes(queryLower);
+        const hasMedMatch = (s.items || []).some(item => 
+          item.brandName?.toLowerCase().includes(queryLower) ||
+          item.genericName?.toLowerCase().includes(queryLower) ||
+          item.batchNumber?.toLowerCase().includes(queryLower)
+        );
+        if (!billNoMatch && !patientMatch && !doctorMatch && !hasMedMatch) return false;
+      }
       
       return true;
     });
@@ -1911,6 +1940,26 @@ export default function PharmacyApp() {
           return false;
         });
         if (!hasMed) return false;
+      }
+
+      // Batch No filter
+      if (reportFilters.batchNo) {
+        const batchLower = reportFilters.batchNo.toLowerCase();
+        const hasBatch = (p.items || []).some(item => item.batchNumber?.toLowerCase().includes(batchLower));
+        if (!hasBatch) return false;
+      }
+
+      // Search text filter (Supplier, Invoice No, Medicine)
+      if (reportFilters.searchText) {
+        const queryLower = reportFilters.searchText.toLowerCase();
+        const invNoMatch = p.invoiceNumber?.toLowerCase().includes(queryLower);
+        const supplierMatch = p.supplierName?.toLowerCase().includes(queryLower);
+        const hasMedMatch = (p.items || []).some(item => 
+          item.brandName?.toLowerCase().includes(queryLower) ||
+          item.genericName?.toLowerCase().includes(queryLower) ||
+          item.batchNumber?.toLowerCase().includes(queryLower)
+        );
+        if (!invNoMatch && !supplierMatch && !hasMedMatch) return false;
       }
       
       return true;
@@ -2590,7 +2639,7 @@ export default function PharmacyApp() {
 
       playBeep(880, 0.08); // high pitch success beep
       handleNewInvoice();
-      alert(`✓ Sale finalized! Invoice ${billNumber} generated successfully.`);
+      setShowBillSuccessModal(true);
     } catch (err) {
       playBeep(220, 0.15); // low pitch warn beep
       alert("Error generating bill: " + err.message);
@@ -6670,6 +6719,28 @@ export default function PharmacyApp() {
                   <span style={{ fontSize: 11, color: C.text3 }}>Log Dues Made to Vendors</span>
                 </div>
               </button>
+              <button 
+                className="action-card" 
+                style={{ "--hover-color": C.teal2 }}
+                onClick={() => { setActiveTab("reports"); setReportsSubTab("adc"); setAdcSubTab("sales"); }}
+              >
+                <div style={{ padding: 10, background: "rgba(20,160,133,0.08)", borderRadius: 10, fontSize: 24 }}>🛡️</div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Detailed Sales Register</div>
+                  <span style={{ fontSize: 11, color: C.text3 }}>Drug Inspector compliance</span>
+                </div>
+              </button>
+              <button 
+                className="action-card" 
+                style={{ "--hover-color": C.blue }}
+                onClick={() => { setActiveTab("reports"); setReportsSubTab("adc"); setAdcSubTab("purchase"); }}
+              >
+                <div style={{ padding: 10, background: "rgba(21,101,192,0.08)", borderRadius: 10, fontSize: 24 }}>🛡️</div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>Detailed Purchase Register</div>
+                  <span style={{ fontSize: 11, color: C.text3 }}>DI Stock verification</span>
+                </div>
+              </button>
             </div>
 
             {/* ── 12 KPI Stats Card Grid (PMBI Dashboard replication) ── */}
@@ -8638,7 +8709,8 @@ export default function PharmacyApp() {
               {[
                 ["sales", "Sales Report", "📈"],
                 ["purchase", "Purchase Report", "📦"],
-                ["gst", "GST Compliance & Ledger", "⚖️"]
+                ["gst", "GST Compliance & Ledger", "⚖️"],
+                ["adc", "ADC Inspection Register", "🛡️"]
               ].map(([id, label, icon]) => {
                 const isAct = reportsSubTab === id;
                 return (
@@ -8766,6 +8838,26 @@ export default function PharmacyApp() {
                     </option>
                   ))}
                 </select>
+              </FF>
+
+              <FF label="Search Patient/Doctor/Bill/Item">
+                <input
+                  type="text"
+                  placeholder="e.g. Patient, Bill No, Medicine..."
+                  style={S.input}
+                  value={reportFilters.searchText || ""}
+                  onChange={e => setReportFilters(f => ({ ...f, searchText: e.target.value }))}
+                />
+              </FF>
+
+              <FF label="Filter by Batch No">
+                <input
+                  type="text"
+                  placeholder="e.g. B1234"
+                  style={S.input}
+                  value={reportFilters.batchNo || ""}
+                  onChange={e => setReportFilters(f => ({ ...f, batchNo: e.target.value }))}
+                />
               </FF>
             </div>
 
@@ -9227,6 +9319,420 @@ export default function PharmacyApp() {
                         </div>
                       </div>
                     </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {reportsSubTab === "adc" && (
+              <div>
+                <style>{`
+                  @media print {
+                    /* Hide EVERYTHING except our printable register card */
+                    body, html {
+                      background: #fff !important;
+                      color: #000 !important;
+                    }
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    .printable-register, .printable-register * {
+                      visibility: visible !important;
+                    }
+                    .printable-register {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                    }
+                    /* Ensure tables format nicely */
+                    .printable-register table {
+                      width: 100% !important;
+                      border-collapse: collapse !important;
+                      font-size: 10px !important;
+                    }
+                    .printable-register th, .printable-register td {
+                      border: 1px solid #000 !important;
+                      padding: 4px 6px !important;
+                    }
+                    /* Prevent page splits inside rows */
+                    tr {
+                      page-break-inside: avoid !important;
+                    }
+                  }
+                `}</style>
+
+                {/* Audit Tabs */}
+                <div style={{ display: "flex", borderBottom: `1.5px solid ${C.border}`, marginBottom: 20, background: "#F8FAFC", borderRadius: 8, padding: 4 }}>
+                  {[
+                    ["sales", "Detailed Sales Register", "📈"],
+                    ["purchase", "Detailed Purchase Register", "📦"],
+                    ["ledger", "Item & Batch Stock Ledger (Audit Trail)", "🛡️"]
+                  ].map(([id, label, icon]) => {
+                    const isAct = adcSubTab === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setAdcSubTab(id)}
+                        style={{
+                          flex: 1,
+                          padding: "10px 14px",
+                          background: isAct ? "#fff" : "none",
+                          border: "none",
+                          borderRadius: 6,
+                          boxShadow: isAct ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                          color: isAct ? C.teal : C.text2,
+                          fontWeight: isAct ? 700 : 500,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          fontSize: 12.5,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        <span>{icon}</span> {adcSubTab === id ? <strong>{label}</strong> : label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Print button & description */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ fontSize: 12.5, color: C.text2 }}>
+                    💡 <strong>Drug Inspector / ADC Verification mode:</strong> Below is the detailed batch-wise compliance record. Filter using the panels above.
+                  </div>
+                  <button 
+                    style={{ ...S.btn("primary"), display: "inline-flex", alignItems: "center", gap: 6 }} 
+                    onClick={() => window.print()}
+                  >
+                    🖨️ Print Detailed Register
+                  </button>
+                </div>
+
+                {adcSubTab === "sales" && (() => {
+                  // Compute itemised sales
+                  const itemisedSales = [];
+                  rSales.forEach(s => {
+                    const billDate = s.createdAt?.toDate ? s.createdAt.toDate().toLocaleDateString("en-IN") : new Date(s.createdAt || 0).toLocaleDateString("en-IN");
+                    (s.items || []).forEach(item => {
+                      if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                      
+                      // Filter by batch No
+                      if (reportFilters.batchNo) {
+                        const batchLower = reportFilters.batchNo.toLowerCase();
+                        const matchBatch = item.batchNumber?.toLowerCase().includes(batchLower) || 
+                                           (item.batchesUsed && item.batchesUsed.some(bu => bu.batchNumber?.toLowerCase().includes(batchLower)));
+                        if (!matchBatch) return;
+                      }
+
+                      let batchNo = item.batchNumber || "—";
+                      let expiry = item.expiryDate || "—";
+                      if (item.batchesUsed && item.batchesUsed.length > 0) {
+                        batchNo = item.batchesUsed.map(b => b.batchNumber).join(", ");
+                        expiry = item.batchesUsed.map(b => b.expiryDate).join(", ");
+                      }
+
+                      itemisedSales.push({
+                        date: billDate,
+                        billNumber: s.billNumber,
+                        customerName: s.customerName || "Walk-in Patient",
+                        customerPhone: s.customerPhone || "—",
+                        doctorName: s.doctorName || "—",
+                        brandName: item.brandName || item.genericName,
+                        genericName: item.genericName || "",
+                        batchNumber: batchNo,
+                        expiryDate: expiry,
+                        qty: item.quantity || item.qty || 1,
+                        mrp: item.mrp || item.sellingPrice || 0,
+                        gstRate: item.gstRate || 12,
+                        total: item.total || 0
+                      });
+                    });
+                  });
+
+                  return (
+                    <div style={S.card} className="printable-register">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `2.5px solid ${C.border}`, paddingBottom: 10, marginBottom: 14 }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy, textTransform: "uppercase" }}>Detailed Sales Register</div>
+                          <span style={{ fontSize: 11, color: C.text3 }}>Itemised Batch Records Compliance Ledger · {storeDetails?.name}</span>
+                        </div>
+                        <span style={S.badge("blue")}>{itemisedSales.length} items sold</span>
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", border: `1px solid ${C.border}`, fontSize: 11.5 }}>
+                          <thead>
+                            <tr style={{ background: "#F8FAFC", borderBottom: `1.5px solid ${C.border}` }}>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Date</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Bill No</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Patient Name</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Doctor</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Medicine Name</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Batch</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Expiry</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>Qty</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "right" }}>MRP</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>GST</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "right" }}>Total (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itemisedSales.length === 0 ? (
+                              <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: C.text3, padding: "20px 0", fontStyle: "italic" }}>No itemised sales records match the active filters.</td></tr>
+                            ) : (
+                              itemisedSales.map((row, idx) => (
+                                <tr key={idx} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <td style={S.td}>{row.date}</td>
+                                  <td style={{ ...S.td, fontWeight: 600, color: C.blue }}>{row.billNumber}</td>
+                                  <td style={S.td}>
+                                    <div><strong>{row.customerName}</strong></div>
+                                    <div style={{ fontSize: 10, color: C.text3 }}>{row.customerPhone}</div>
+                                  </td>
+                                  <td style={S.td}>{row.doctorName}</td>
+                                  <td style={S.td}>
+                                    <div style={{ fontWeight: 600, color: C.navy }}>{row.brandName}</div>
+                                    {row.genericName && row.genericName !== row.brandName && <div style={{ fontSize: 10, color: C.text3, fontStyle: "italic" }}>{row.genericName}</div>}
+                                  </td>
+                                  <td style={{ ...S.td, fontWeight: 700, fontFamily: "monospace" }}>{row.batchNumber}</td>
+                                  <td style={S.td}>{row.expiryDate}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, textAlign: "center" }}>{row.qty}</td>
+                                  <td style={{ ...S.td, textAlign: "right" }}>₹{row.mrp.toFixed(2)}</td>
+                                  <td style={{ ...S.td, textAlign: "center" }}>{row.gstRate}%</td>
+                                  <td style={{ ...S.td, fontWeight: 700, color: C.green, textAlign: "right" }}>₹{row.total.toFixed(2)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {adcSubTab === "purchase" && (() => {
+                  // Compute itemised purchases
+                  const itemisedPurchases = [];
+                  rPurch.forEach(p => {
+                    let purchaseDate = p.invoiceDate ? new Date(p.invoiceDate).toLocaleDateString("en-IN") : "";
+                    if (!purchaseDate) {
+                      purchaseDate = p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString("en-IN") : new Date(p.createdAt || 0).toLocaleDateString("en-IN");
+                    }
+                    (p.items || []).forEach(item => {
+                      const itemMedId = item.medicineId || item.overrideId || item.matchedItem?.id;
+                      if (reportFilters.medicineId && itemMedId !== reportFilters.medicineId) return;
+                      
+                      // Filter by batch
+                      if (reportFilters.batchNo) {
+                        const batchLower = reportFilters.batchNo.toLowerCase();
+                        if (!item.batchNumber?.toLowerCase().includes(batchLower)) return;
+                      }
+
+                      itemisedPurchases.push({
+                        date: purchaseDate,
+                        invoiceNumber: p.invoiceNumber,
+                        supplierName: p.supplierName,
+                        brandName: item.brandName || item.genericName,
+                        genericName: item.genericName || "",
+                        batchNumber: item.batchNumber || "—",
+                        expiryDate: item.expiryDate || "—",
+                        qty: item.qty || item.quantity || 0,
+                        purchasePrice: item.purchasePrice || 0,
+                        gstRate: item.gstRate || 12,
+                        total: (item.purchasePrice || 0) * (item.qty || item.quantity || 0)
+                      });
+                    });
+                  });
+
+                  return (
+                    <div style={S.card} className="printable-register">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `2.5px solid ${C.border}`, paddingBottom: 10, marginBottom: 14 }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy, textTransform: "uppercase" }}>Detailed Purchase Register</div>
+                          <span style={{ fontSize: 11, color: C.text3 }}>Itemised Inward Stock Compliance Ledger · {storeDetails?.name}</span>
+                        </div>
+                        <span style={S.badge("teal")}>{itemisedPurchases.length} items purchased</span>
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", border: `1px solid ${C.border}`, fontSize: 11.5 }}>
+                          <thead>
+                            <tr style={{ background: "#F8FAFC", borderBottom: `1.5px solid ${C.border}` }}>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Date</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Invoice No</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Supplier / Vendor</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Medicine Name</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Batch</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Expiry</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>Qty</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "right" }}>Pur. Rate</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>GST</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "right" }}>Total (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itemisedPurchases.length === 0 ? (
+                              <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: C.text3, padding: "20px 0", fontStyle: "italic" }}>No itemised purchase records match the active filters.</td></tr>
+                            ) : (
+                              itemisedPurchases.map((row, idx) => (
+                                <tr key={idx} style={{ borderBottom: `1px solid ${C.border}` }}>
+                                  <td style={S.td}>{row.date}</td>
+                                  <td style={{ ...S.td, fontWeight: 600, color: C.navy }}>{row.invoiceNumber}</td>
+                                  <td style={S.td}>{row.supplierName}</td>
+                                  <td style={S.td}>
+                                    <div style={{ fontWeight: 600, color: C.navy }}>{row.brandName}</div>
+                                    {row.genericName && row.genericName !== row.brandName && <div style={{ fontSize: 10, color: C.text3, fontStyle: "italic" }}>{row.genericName}</div>}
+                                  </td>
+                                  <td style={{ ...S.td, fontWeight: 700, fontFamily: "monospace" }}>{row.batchNumber}</td>
+                                  <td style={S.td}>{row.expiryDate}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, textAlign: "center" }}>{row.qty}</td>
+                                  <td style={{ ...S.td, textAlign: "right" }}>₹{row.purchasePrice.toFixed(2)}</td>
+                                  <td style={{ ...S.td, textAlign: "center" }}>{row.gstRate}%</td>
+                                  <td style={{ ...S.td, fontWeight: 700, color: C.green, textAlign: "right" }}>₹{row.total.toFixed(2)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {adcSubTab === "ledger" && (() => {
+                  // Compute chronological audit ledger for a medicine/batch
+                  const ledgerEntries = [];
+
+                  // Purchases inflow
+                  purchases.forEach(p => {
+                    let d = p.invoiceDate ? new Date(p.invoiceDate) : null;
+                    if (!d || isNaN(d.getTime())) {
+                      d = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt || 0);
+                    }
+                    (p.items || []).forEach(item => {
+                      const itemMedId = item.medicineId || item.overrideId || item.matchedItem?.id;
+                      if (reportFilters.medicineId && itemMedId !== reportFilters.medicineId) return;
+                      
+                      // Filter by batch
+                      if (reportFilters.batchNo) {
+                        const batchLower = reportFilters.batchNo.toLowerCase();
+                        if (!item.batchNumber?.toLowerCase().includes(batchLower)) return;
+                      }
+
+                      ledgerEntries.push({
+                        date: d,
+                        type: "📥 PURCHASE (IN)",
+                        refNo: p.invoiceNumber,
+                        party: p.supplierName,
+                        brandName: item.brandName || item.genericName,
+                        batchNumber: item.batchNumber || "—",
+                        expiryDate: item.expiryDate || "—",
+                        inQty: item.qty || item.quantity || 0,
+                        outQty: 0,
+                        rate: item.purchasePrice || 0
+                      });
+                    });
+                  });
+
+                  // Sales outflow
+                  sales.forEach(s => {
+                    const d = s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt || 0);
+                    (s.items || []).forEach(item => {
+                      if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
+                      
+                      // Filter by batch
+                      if (reportFilters.batchNo) {
+                        const batchLower = reportFilters.batchNo.toLowerCase();
+                        const matchBatch = item.batchNumber?.toLowerCase().includes(batchLower) || 
+                                           (item.batchesUsed && item.batchesUsed.some(bu => bu.batchNumber?.toLowerCase().includes(batchLower)));
+                        if (!matchBatch) return;
+                      }
+
+                      let batchNo = item.batchNumber || "—";
+                      let expiry = item.expiryDate || "—";
+                      if (item.batchesUsed && item.batchesUsed.length > 0) {
+                        batchNo = item.batchesUsed.map(b => b.batchNumber).join(", ");
+                        expiry = item.batchesUsed.map(b => b.expiryDate).join(", ");
+                      }
+
+                      ledgerEntries.push({
+                        date: d,
+                        type: "📤 SALE (OUT)",
+                        refNo: s.billNumber,
+                        party: s.customerName || "Walk-in Patient",
+                        brandName: item.brandName || item.genericName,
+                        batchNumber: batchNo,
+                        expiryDate: expiry,
+                        inQty: 0,
+                        outQty: item.quantity || item.qty || 1,
+                        rate: item.mrp || item.sellingPrice || 0
+                      });
+                    });
+                  });
+
+                  // Sort chronologically ascending
+                  ledgerEntries.sort((a, b) => a.date - b.date);
+
+                  return (
+                    <div style={S.card} className="printable-register">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `2.5px solid ${C.border}`, paddingBottom: 10, marginBottom: 14 }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.navy, textTransform: "uppercase" }}>Batch Stock Flow Audit Ledger</div>
+                          <span style={{ fontSize: 11, color: C.text3 }}>Chronological Inflow/Outflow Trail Register · {storeDetails?.name}</span>
+                        </div>
+                        <span style={S.badge("amber")}>{ledgerEntries.length} movements</span>
+                      </div>
+                      
+                      {!reportFilters.medicineId && !reportFilters.batchNo && (
+                        <div style={{ padding: "12px 14px", background: "#FFF8E7", border: `1.5px solid #FCD34D`, color: "#B45309", borderRadius: 8, fontSize: 12, fontWeight: 600, marginBottom: 16 }} className="no-print">
+                          ⚠️ <strong>DI Compliance Tip:</strong> Select a "Target Medicine" or type a "Filter by Batch No" in the panel above to generate a chronological audit trail for that specific medicine/batch.
+                        </div>
+                      )}
+
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", border: `1px solid ${C.border}`, fontSize: 11.5 }}>
+                          <thead>
+                            <tr style={{ background: "#F8FAFC", borderBottom: `1.5px solid ${C.border}` }}>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Date & Time</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Action Type</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Doc Ref #</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Vendor / Patient</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Item Description</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Batch No</th>
+                              <th style={{ ...S.th, padding: "6px 8px" }}>Expiry</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>Qty IN</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "center" }}>Qty OUT</th>
+                              <th style={{ ...S.th, padding: "6px 8px", textAlign: "right" }}>Rate (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ledgerEntries.length === 0 ? (
+                              <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: C.text3, padding: "20px 0", fontStyle: "italic" }}>No transactions found for the selected criteria.</td></tr>
+                            ) : (
+                              ledgerEntries.map((row, idx) => (
+                                <tr key={idx} style={{ borderBottom: `1px solid ${C.border}`, background: row.inQty > 0 ? "#F0FDF4" : "#FFF5F5" }}>
+                                  <td style={S.td}>{row.date.toLocaleString("en-IN")}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, color: row.inQty > 0 ? C.green : C.red }}>{row.type}</td>
+                                  <td style={S.td}>{row.refNo}</td>
+                                  <td style={S.td}>{row.party}</td>
+                                  <td style={S.td}>{row.brandName}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, fontFamily: "monospace" }}>{row.batchNumber}</td>
+                                  <td style={S.td}>{row.expiryDate}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, color: C.green, textAlign: "center" }}>{row.inQty > 0 ? `+${row.inQty}` : "—"}</td>
+                                  <td style={{ ...S.td, fontWeight: 700, color: C.red, textAlign: "center" }}>{row.outQty > 0 ? `-${row.outQty}` : "—"}</td>
+                                  <td style={{ ...S.td, textAlign: "right" }}>₹{row.rate.toFixed(2)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   );
                 })()}
               </div>
@@ -11292,6 +11798,101 @@ export default function PharmacyApp() {
             <div style={{ borderTop: `1.5px solid ${C.border}`, paddingTop: 16, marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
               <button style={S.btn("outline")} onClick={() => setSelectedBill(null)}>
                 Close Invoice View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBillSuccessModal && lastBill && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(10,35,66,0.6)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 99999,
+          fontFamily: "inherit"
+        }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: 16,
+            width: "90%",
+            maxWidth: 480,
+            padding: 28,
+            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+            border: `1px solid ${C.border}`,
+            textAlign: "center"
+          }}>
+            <div style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "#E8F5EE",
+              color: C.green,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 28,
+              margin: "0 auto 16px"
+            }}>
+              ✓
+            </div>
+            
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: C.navy, margin: "0 0 8px 0" }}>
+              Bill Saved Successfully!
+            </h3>
+            
+            <p style={{ fontSize: 13, color: C.text3, margin: "0 0 20px 0" }}>
+              Invoice <strong>{lastBill.billNumber}</strong> has been generated.
+            </p>
+            
+            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: 14, marginBottom: 24, textAlign: "left" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: C.text3 }}>Patient Name:</span>
+                <span style={{ fontWeight: 700, color: C.navy }}>{lastBill.customerName}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: C.text3 }}>Payment Mode:</span>
+                <span style={{ fontWeight: 700, color: C.blue }}>{lastBill.paymentMode}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, paddingTop: 6, borderTop: `1px solid ${C.border}` }}>
+                <span style={{ color: C.navy }}>Grand Total:</span>
+                <span style={{ color: C.green }}>₹{(lastBill.grandTotal || 0).toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button 
+                style={{ ...S.btn("primary"), padding: "12px", fontSize: 14, width: "100%", justifyContent: "center" }}
+                onClick={() => printA4PDFInvoice(lastBill)}
+              >
+                📄 Print A4 Invoice
+              </button>
+              
+              <button 
+                style={{ ...S.btn("teal"), padding: "12px", fontSize: 14, width: "100%", justifyContent: "center" }}
+                onClick={() => printThermalReceipt(lastBill, storeDetails)}
+              >
+                🧾 Print Thermal Receipt
+              </button>
+              
+              <button 
+                style={{ ...S.btn("outline"), padding: "12px", fontSize: 14, width: "100%", justifyContent: "center", border: `1.5px solid ${C.border2}` }}
+                onClick={() => {
+                  setShowBillSuccessModal(false);
+                  setTimeout(() => {
+                    const inputEl = document.getElementById("billing-item-search-input");
+                    if (inputEl) inputEl.focus();
+                  }, 100);
+                }}
+              >
+                🆕 Start New Bill
               </button>
             </div>
           </div>
