@@ -6322,33 +6322,6 @@ export default function PharmacyApp() {
         .kpi-card:hover::after {
           transform: scaleX(1);
         }
-
-        .speedo-card:hover .speedo-needle {
-          filter: drop-shadow(0 0 3px ${C.teal2});
-        }
-
-        @keyframes needleSweep {
-          0% { transform: rotate(-90deg); }
-          100% { transform: rotate(87deg); }
-        }
-        .speedo-needle {
-          transform-origin: 55px 50px;
-          animation: needleSweep 2s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
-          transition: filter 0.3s;
-        }
-
-        @keyframes marquee {
-          0% { transform: translate3d(0, 0, 0); }
-          100% { transform: translate3d(-50%, 0, 0); }
-        }
-        .marquee-content {
-          display: flex;
-          gap: 50px;
-          animation: marquee 45s linear infinite;
-        }
-        .marquee-content:hover {
-          animation-play-state: paused;
-        }
       `}</style>
       
       {/* ── Sidebar Navigation ── */}
@@ -6416,25 +6389,6 @@ export default function PharmacyApp() {
             );
           })}
         </nav>
-
-        {/* Database Backup Status Dial Gauge */}
-        <div className="speedo-card" style={{ padding: "18px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(255,255,255,0.01)" }}>
-          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", marginBottom: 4 }}>
-            <svg width="110" height="60" viewBox="0 0 110 60">
-              <path d="M 20,50 A 35,35 0 0,1 90,50" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="7" strokeLinecap="round" />
-              <path d="M 20,50 A 35,35 0 0,1 86,22" fill="none" stroke={C.teal2} strokeWidth="7" strokeLinecap="round" strokeDasharray="110" strokeDashoffset="12" />
-              <circle cx="55" cy="50" r="5" fill="#ffffff" />
-              <line x1="55" y1="50" x2="55" y2="18" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" className="speedo-needle" style={{ transform: "rotate(84deg)" }} />
-            </svg>
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: "#fff", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#10B981", display: "inline-block", animation: "pulseSync 1.5s infinite" }} />
-              98.4% BACKED UP
-            </div>
-            <div style={{ fontSize: 9, color: "#6C7A9C", marginTop: 2 }}>Database Cloud Sync Active</div>
-          </div>
-        </div>
 
         {/* Profile Card Bottom */}
         <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 12 }}>
@@ -11319,29 +11273,20 @@ export default function PharmacyApp() {
         </div>
       )}
 
-      {/* ── Ticker Scrolling Footer Bar ── */}
+      {/* ── Footer Bar ── */}
       <footer style={{
         height: 38,
         background: "#0A2342",
         borderTop: "1.5px solid rgba(255,255,255,0.08)",
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: "flex-end",
         padding: "0 20px",
         color: "#fff",
         fontSize: 11,
         zIndex: 10,
         flexShrink: 0
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ background: C.teal2, color: "#fff", padding: "2px 8px", borderRadius: 4, fontWeight: 800, fontSize: 9 }}>TRAINING ALERTS</span>
-          <div className="marquee-container" style={{ width: 450, overflow: "hidden", position: "relative" }}>
-            <div className="marquee-content">
-              <span>📢 Namaskar. As Janaushadhi POS Software training program has been scheduled further for Six (06) Months on daily basis at 3:00 PM (Mon to Fri) onwards. It is requested all of you to join the same training session as per schedule.</span>
-              <span>📢 Namaskar. As Janaushadhi POS Software training program has been scheduled further for Six (06) Months on daily basis at 3:00 PM (Mon to Fri) onwards. It is requested all of you to join the same training session as per schedule.</span>
-            </div>
-          </div>
-        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#6C7A9C" }}>Version: <strong style={{ color: "#fff" }}>1.35.0</strong></span>
           <span style={{ color: "#6C7A9C" }}>|</span>
