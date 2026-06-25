@@ -7342,14 +7342,48 @@ export default function PharmacyApp() {
                         const oos = m.stockQty <= 0;
                         return (
                           <div key={m.id} onMouseDown={() => handleSelectSearchDrug(m)}>
-                            <button style={{ width: "100%", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", background: idx === searchHighlight ? "#E0F7F4" : expired ? "#FFF5F5" : oos ? "#FFFBEB" : "none", border: "none", borderBottom: `1px solid ${C.border}`, cursor: expired ? "not-allowed" : "pointer", fontFamily: "inherit", textAlign: "left", opacity: expired ? 0.6 : 1 }}>
-                              <div>
-                                <span style={{ fontWeight: 600, color: C.navy, fontSize: 12 }}>{m.genericName}</span>
-                                <span style={{ color: C.text3, fontSize: 11, marginLeft: 6 }}>{m.brandName}</span>
-                                {expired && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: C.red, background: "#FDECEA", borderRadius: 4, padding: "1px 4px" }}>EXPIRED</span>}
-                                {!expired && expiring && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: C.amber, background: "#FEF3DC", borderRadius: 4, padding: "1px 4px" }}>Exp {m.expiryDate}</span>}
+                            <button style={{ width: "100%", padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: idx === searchHighlight ? "#E0F7F4" : expired ? "#FFF5F5" : oos ? "#FFFBEB" : "none", border: "none", borderBottom: `1px solid ${C.border}`, cursor: expired ? "not-allowed" : "pointer", fontFamily: "inherit", textAlign: "left", opacity: expired ? 0.6 : 1 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                {/* Row 1: Name + status badges */}
+                                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                                  <span style={{ fontWeight: 600, color: C.navy, fontSize: 12 }}>{m.genericName}</span>
+                                  <span style={{ color: C.text3, fontSize: 11 }}>{m.brandName}</span>
+                                  {expired && <span style={{ fontSize: 9, fontWeight: 700, color: C.red, background: "#FDECEA", borderRadius: 4, padding: "1px 4px" }}>EXPIRED</span>}
+                                  {!expired && expiring && <span style={{ fontSize: 9, fontWeight: 700, color: C.amber, background: "#FEF3DC", borderRadius: 4, padding: "1px 4px" }}>Expiring Soon</span>}
+                                </div>
+                                {/* Row 2: Batch & Expiry info */}
+                                {(() => {
+                                  const batches = m.batches || [];
+                                  if (batches.length > 0) {
+                                    return (
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 3 }}>
+                                        {batches.slice(0, 3).map((b, bi) => {
+                                          const bExp = b.expiryDate || "—";
+                                          const isExpiredBatch = (() => { try { const [mo, yr] = bExp.split("/"); const y = yr?.length === 2 ? 2000 + parseInt(yr) : parseInt(yr); return new Date(y, parseInt(mo) - 1, 28) < new Date(); } catch { return false; } })();
+                                          return (
+                                            <span key={bi} style={{ fontSize: 9.5, fontFamily: "monospace", background: isExpiredBatch ? "#FDECEA" : "#F0FDF4", color: isExpiredBatch ? C.red : "#166534", border: `1px solid ${isExpiredBatch ? "#FCA5A5" : "#86EFAC"}`, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}>
+                                              B: {b.batchNumber} · Exp: {bExp} · Qty: {b.quantity ?? b.stockQty ?? "?"}
+                                            </span>
+                                          );
+                                        })}
+                                        {batches.length > 3 && <span style={{ fontSize: 9, color: C.text3 }}>+{batches.length - 3} more batches</span>}
+                                      </div>
+                                    );
+                                  } else if (m.batchNumber || m.expiryDate) {
+                                    const bExp = m.expiryDate || "—";
+                                    const isExpiredBatch = (() => { try { const [mo, yr] = bExp.split("/"); const y = yr?.length === 2 ? 2000 + parseInt(yr) : parseInt(yr); return new Date(y, parseInt(mo) - 1, 28) < new Date(); } catch { return false; } })();
+                                    return (
+                                      <div style={{ marginTop: 3 }}>
+                                        <span style={{ fontSize: 9.5, fontFamily: "monospace", background: isExpiredBatch ? "#FDECEA" : "#F0FDF4", color: isExpiredBatch ? C.red : "#166534", border: `1px solid ${isExpiredBatch ? "#FCA5A5" : "#86EFAC"}`, borderRadius: 4, padding: "1px 5px" }}>
+                                          B: {m.batchNumber || "—"} · Exp: {bExp}
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
-                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, marginLeft: 8, flexShrink: 0 }}>
                                 <span style={{ fontWeight: 700, color: C.blue, fontSize: 12 }}>₹{m.sellingPrice || m.mrp}</span>
                                 <span style={{ ...S.badge(expired ? "red" : oos ? "red" : m.stockQty <= m.lowStockAlert ? "amber" : "teal"), padding: "1px 5px", fontSize: 9 }}>
                                   {oos ? "OOS" : `Stock: ${m.stockQty}`}
