@@ -617,7 +617,7 @@ export default function PharmacyApp() {
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [viewingPurchase, setViewingPurchase] = useState(null); // purchase detail modal
   const [purchaseForm, setPurchaseForm] = useState({ supplierName: "", invoiceNumber: "", invoiceDate: "", paymentStatus: "Unpaid", items: [] });
-  const [purchaseItem, setPurchaseItem] = useState({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", quantity: "", unit: "Strip", gstRate: "12" });
+  const [purchaseItem, setPurchaseItem] = useState({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", quantity: "", unit: "Strip", gstRate: "12", packSize: "1" });
   const [previewItems, setPreviewItems] = useState([]);
   const [showPreviewDrawer, setShowPreviewDrawer] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -2154,6 +2154,7 @@ export default function PharmacyApp() {
         const unitIdx = itemHeaders.findIndex(h => h.includes("unit") || h.includes("pack"));
         const gstIdx = itemHeaders.findIndex(h => h.includes("gst") || h.includes("tax"));
         const barIdx = itemHeaders.findIndex(h => h.includes("barcode") || h.includes("upc"));
+        const packSizeIdx = itemHeaders.findIndex(h => h.includes("pack size") || h.includes("packsize") || h.includes("conversion") || h.includes("qty per pack") || h.includes("pack qty"));
 
         for (let i = itemHeaderIdx + 1; i < data.length; i++) {
           const row = data[i];
@@ -2172,8 +2173,9 @@ export default function PharmacyApp() {
           const unit = unitIdx >= 0 ? String(row[unitIdx] || "Strip") : "Strip";
           const gstRate = gstIdx >= 0 ? String(parseFloat(row[gstIdx]) || 12) : "12";
           const barcode = barIdx >= 0 ? String(row[barIdx] || "").trim() : "";
+          const packSize = packSizeIdx >= 0 ? parseInt(row[packSizeIdx]) || 1 : 1;
 
-          const incomingItem = { genericName, brandName, strength, form, batchNumber, expiryDate, mrp, sellingPrice, purchasePrice, quantity, unit, gstRate, barcode };
+          const incomingItem = { genericName, brandName, strength, form, batchNumber, expiryDate, mrp, sellingPrice, purchasePrice, quantity, unit, gstRate, barcode, packSize };
           
           const match = findBestMatch(incomingItem, medicines);
 
@@ -2246,7 +2248,8 @@ export default function PharmacyApp() {
           quantity: parseInt(item.quantity) || 0,
           unit: item.unit || "Strip",
           gstRate: String(item.gstRate || "12"),
-          barcode: item.barcode || ""
+          barcode: item.barcode || "",
+          packSize: parseInt(item.packSize) || 1
         };
 
         const match = findBestMatch(incomingItem, medicines);
@@ -3533,6 +3536,7 @@ export default function PharmacyApp() {
       sellingPrice: +purchaseItem.sellingPrice || mrp,
       purchasePrice: +purchaseItem.purchasePrice || 0,
       quantity: +purchaseItem.quantity || 0,
+      packSize: parseFloat(purchaseItem.packSize) || 1,
       batchNumber: purchaseItem.batchNumber || "BAT-" + Math.floor(Math.random() * 100000),
       expiryDate: purchaseItem.expiryDate || "2027-12",
       matchType: "NEW",
@@ -3549,7 +3553,7 @@ export default function PharmacyApp() {
     itemToAdd.overrideId = match.type === "MATCH" ? match.item.id : "";
 
     setPurchaseForm(prev => ({ ...prev, items: [...prev.items, itemToAdd] }));
-    setPurchaseItem({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", quantity: "", unit: "Strip", gstRate: "12" });
+    setPurchaseItem({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", quantity: "", unit: "Strip", gstRate: "12", packSize: "1" });
   };
 
   const savePurchase = async () => {
@@ -3598,11 +3602,12 @@ export default function PharmacyApp() {
           targetId = item.matchedItem.id;
         }
 
+        const packSize = parseFloat(item.packSize) || 1;
         const incomingBatch = {
           batchNumber: item.batchNumber || "BAT-GEN-" + Math.floor(Math.random() * 100000),
           expiryDate: item.expiryDate || "2027-12",
-          quantity: +item.quantity || 0,
-          purchasePrice: +item.purchasePrice || 0,
+          quantity: (+item.quantity || 0) * packSize,
+          purchasePrice: (+item.purchasePrice || 0) / packSize,
           mrp: +item.mrp || 0,
           sellingPrice: +item.sellingPrice || +item.mrp || 0
         };
@@ -3660,8 +3665,8 @@ export default function PharmacyApp() {
           // CREATE NEW ITEM & ATOMIC BATCH INVENTORY
           const mrpVal = +item.mrp || 0;
           const sellVal = +item.sellingPrice || mrpVal;
-          const buyVal = +item.purchasePrice || 0;
-          const qtyVal = +item.quantity || 0;
+          const buyVal = incomingBatch.purchasePrice;
+          const qtyVal = incomingBatch.quantity;
 
           await addDoc(collection(db, "medicines"), {
             storeId,
@@ -7856,7 +7861,7 @@ export default function PharmacyApp() {
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 950 }}>
                     <thead>
                       <tr style={{ background: "#F8FAFC" }}>
-                        {["Incoming Drug", "Specs", "Expiry", "Printed MRP", "Retail Selling", "Buy Rate", "Qty", "GST%", "Similarity", "Resolution Binding", ""].map(h => <th key={h} style={{ ...S.th, padding: "12px 14px" }}>{h}</th>)}
+                        {["Incoming Drug", "Specs", "Expiry", "Printed MRP", "Retail Selling", "Buy Rate", "Qty", "Pack Size", "GST%", "Similarity", "Resolution Binding", ""].map(h => <th key={h} style={{ ...S.th, padding: "12px 14px" }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -7886,9 +7891,22 @@ export default function PharmacyApp() {
                             </td>
                             <td style={{ ...S.td, padding: "12px 14px" }}>
                               <input type="number" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 64 }} value={item.purchasePrice} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, purchasePrice: +e.target.value} : it)}))} />
+                              {item.packSize > 1 && (
+                                <div style={{ fontSize: 9, color: C.teal, marginTop: 4, fontWeight: 700 }}>
+                                  ₹{(item.purchasePrice / item.packSize).toFixed(2)}/unit
+                                </div>
+                              )}
                             </td>
                             <td style={{ ...S.td, padding: "12px 14px" }}>
                               <input type="number" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 56 }} value={item.quantity} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, quantity: +e.target.value} : it)}))} />
+                              {item.packSize > 1 && (
+                                <div style={{ fontSize: 9, color: C.teal, marginTop: 4, fontWeight: 700 }}>
+                                  {item.quantity * item.packSize} units
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ ...S.td, padding: "12px 14px" }}>
+                              <input type="number" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 48, borderColor: C.teal2, fontWeight: 700 }} value={item.packSize || 1} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, packSize: parseInt(e.target.value) || 1} : it)}))} />
                             </td>
                             <td style={{ ...S.td, padding: "12px 14px" }}>
                               <input type="text" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 48 }} value={item.gstRate || "12"} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, gstRate: e.target.value} : it)}))} />
@@ -8025,11 +8043,11 @@ export default function PharmacyApp() {
                   <div style={{ marginBottom:14,overflowX:"auto" }}>
                     <div style={{ fontSize:12,fontWeight:700,color:C.navy,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px" }}>Items ({purchaseForm.items.length}) — Edit if needed</div>
                     <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
-                      <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Str","Form","Batch","Expiry","MRP ₹","Retail ₹","Buy ₹","Qty","GST%",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                      <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Str","Form","Batch","Expiry","MRP ₹","Retail ₹","Buy ₹","Qty","Pack Size","GST%",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                       <tbody>{purchaseForm.items.map((item,idx)=>(
                         <tr key={idx}>
-                          {["genericName","brandName","strength","form","batchNumber","expiryDate","mrp","sellingPrice","purchasePrice","quantity","gstRate"].map(key=>(
-                            <td key={key} style={S.td}><input style={{ ...S.input,fontSize:12,padding:"5px 8px",width:key==="genericName"?120:key==="brandName"?100:key==="strength" || key==="form"?60:key==="quantity" || key==="gstRate"?48:75 }} value={item[key]||""} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseForm(p=>({...p,items:p.items.map((it,i)=>i===idx?{...it,[key]:e.target.value}:it)}))} /></td>
+                          {["genericName","brandName","strength","form","batchNumber","expiryDate","mrp","sellingPrice","purchasePrice","quantity","packSize","gstRate"].map(key=>(
+                            <td key={key} style={S.td}><input style={{ ...S.input,fontSize:12,padding:"5px 8px",width:key==="genericName"?120:key==="brandName"?100:key==="strength" || key==="form"?60:key==="quantity" || key==="gstRate" || key==="packSize"?48:75 }} value={item[key]||""} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseForm(p=>({...p,items:p.items.map((it,i)=>i===idx?{...it,[key]:e.target.value}:it)}))} /></td>
                           ))}
                           <td style={S.td}>
                             <button 
@@ -8050,7 +8068,7 @@ export default function PharmacyApp() {
                 <div style={{ background:"#F8FAFC",border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14 }}>
                   <div style={{ fontSize:11,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:10 }}>Add Item Manually</div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr)) auto",gap:8,alignItems:"end" }}>
-                    {[["Generic*","genericName","text"],["Brand","brandName","text"],["Strength","strength","text"],["Form","form","text"],["Barcode","barcode","text"],["Batch","batchNumber","text"],["Expiry","expiryDate","text"],["MRP","mrp","number"],["Retail ₹","sellingPrice","number"],["Buy ₹","purchasePrice","number"],["Qty*","quantity","number"],["GST %","gstRate","text"]].map(([label,key,type])=>(
+                    {[["Generic*","genericName","text"],["Brand","brandName","text"],["Strength","strength","text"],["Form","form","text"],["Barcode","barcode","text"],["Batch","batchNumber","text"],["Expiry","expiryDate","text"],["MRP","mrp","number"],["Retail ₹","sellingPrice","number"],["Buy ₹","purchasePrice","number"],["Qty*","quantity","number"],["Pack Size","packSize","number"],["GST %","gstRate","text"]].map(([label,key,type])=>(
                       <div key={key}><label style={{ ...S.label,fontSize:10 }}>{label}</label><input type={type} style={{ ...S.input,padding:"7px 8px",fontSize:12 }} value={purchaseItem[key]} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseItem(p=>({...p,[key]:e.target.value}))} /></div>
                     ))}
                     <button style={{ ...S.btn("teal"),padding:"8px 12px",alignSelf:"flex-end" }} onClick={addPurchaseItem}>+ Add</button>
@@ -8161,8 +8179,22 @@ export default function PharmacyApp() {
                                     <td style={{ ...S.td,padding:"8px 10px",color:isExpiredItem?C.red:C.navy,fontWeight:isExpiredItem?700:400 }}>
                                       {bExp}{isExpiredItem && <span style={{ marginLeft:4,fontSize:9,background:"#FDECEA",color:C.red,borderRadius:3,padding:"1px 4px",fontWeight:700 }}>EXPIRED</span>}
                                     </td>
-                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"center",fontWeight:700 }}>{item.quantity||item.qty||0}</td>
-                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"right" }}>₹{(item.purchasePrice||0).toFixed(2)}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"center",fontWeight:700 }}>
+                                      {item.quantity||item.qty||0}
+                                      {item.packSize > 1 && (
+                                        <div style={{ fontSize:9,color:C.teal,fontWeight:700,marginTop:2 }}>
+                                          ({(item.quantity||item.qty||0) * item.packSize} units)
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"right" }}>
+                                      ₹{(item.purchasePrice||0).toFixed(2)}
+                                      {item.packSize > 1 && (
+                                        <div style={{ fontSize:9,color:C.teal,fontWeight:700,marginTop:2 }}>
+                                          (₹{((item.purchasePrice||0) / item.packSize).toFixed(2)}/unit)
+                                        </div>
+                                      )}
+                                    </td>
                                     <td style={{ ...S.td,padding:"8px 10px",textAlign:"right" }}>₹{(item.mrp||0).toFixed(2)}</td>
                                     <td style={{ ...S.td,padding:"8px 10px",textAlign:"center" }}>{item.gstRate||0}%</td>
                                     <td style={{ ...S.td,padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.navy }}>₹{itemTotal.toFixed(2)}</td>

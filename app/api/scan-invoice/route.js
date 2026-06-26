@@ -43,7 +43,8 @@ Schema:
     "quantity": 0, // Quantity (QTY)
     "unit": "Strip", // Strip, Bottle, Piece, Vial, or Tube
     "gstRate": "12", // 0, 5, 12, 18 or 28 based on invoice line details
-    "barcode": null // Barcode if visible, otherwise null
+    "barcode": null, // Barcode if visible, otherwise null
+    "packSize": 1 // Integer pack size or conversion factor (default to 1. If description/packing details mention e.g. '1x12', '12s', 'Pack of 10', extract the number of units in the pack, e.g. 12 or 10)
   }]
 }`
           }
