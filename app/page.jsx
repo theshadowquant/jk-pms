@@ -2226,7 +2226,7 @@ export default function PharmacyApp() {
 
       // Direct client-side fetch to bypass Vercel limits and allow large file sizes/longer timeouts
       const GEMINI_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyBRkoDqCQzm9_xBNIPpIyXEXENLw3UnZdQ";
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`;
 
       const geminiBody = {
         contents: [{
