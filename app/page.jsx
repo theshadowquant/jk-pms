@@ -2399,23 +2399,7 @@ export default function PharmacyApp() {
     if (!billItems.length) return;
     if (!storeId) { alert("Error: No store linked to user."); return; }
     
-    // Strict Patient & Doctor details validations
-    if (!customerName || customerName.trim().length < 2) {
-      playBeep(220, 0.15);
-      alert("⚠ Patient Name is mandatory!");
-      return;
-    }
-    const phoneDigits = customerPhone.replace(/\D/g, "");
-    if (!customerPhone || phoneDigits.length !== 10) {
-      playBeep(220, 0.15);
-      alert("⚠ A valid 10-digit Patient Mobile Number is mandatory!");
-      return;
-    }
-    if (!doctorName || doctorName.trim().length < 2) {
-      playBeep(220, 0.15);
-      alert("⚠ Doctor Name is mandatory!");
-      return;
-    }
+    // Patient & Doctor details are optional
     
     // Validate quantities and selling prices strictly
     for (const item of billItems) {
@@ -7218,8 +7202,8 @@ export default function PharmacyApp() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Pat Mob. No *:</label>
-                  <input style={{ ...S.input, borderColor: customerPhone.replace(/\D/g, "").length !== 10 ? C.red : C.border2 }} value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="10-digit Mobile" />
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Pat Mob. No:</label>
+                  <input style={{ ...S.input, borderColor: C.border2 }} value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="10-digit Mobile" />
                 </div>
                 <div>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>A/c Name:</label>
@@ -7245,18 +7229,18 @@ export default function PharmacyApp() {
                   <input style={S.input} value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="patient@email.com" />
                 </div>
                 <div>
-                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Patient Name *:</label>
-                  <input style={{ ...S.input, borderColor: !customerName ? C.red : C.border2 }} value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Patient Name" />
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Patient Name:</label>
+                  <input style={{ ...S.input, borderColor: C.border2 }} value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Patient Name" />
                 </div>
                 <div>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Gst No:</label>
                   <input style={S.input} value={gstNo} onChange={e => setGstNo(e.target.value)} placeholder="GSTIN (Optional)" />
                 </div>
                 <div style={{ gridColumn: "span 2" }}>
-                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Doctor/CRNo *:</label>
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Doctor/CRNo:</label>
                   <div style={{ position: "relative" }}>
                     <input 
-                      style={{ ...S.input, borderColor: !doctorName ? C.red : C.border2 }} 
+                      style={{ ...S.input, borderColor: C.border2 }} 
                       value={doctorName} 
                       onChange={e => { setDoctorName(e.target.value); setDoctorDropdownOpen(true); }}
                       onFocus={() => setDoctorDropdownOpen(true)}
