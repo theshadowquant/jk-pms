@@ -615,6 +615,7 @@ export default function PharmacyApp() {
   const [showAddMedForm, setShowAddMedForm] = useState(false);
   const [newMed, setNewMed] = useState({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", stockQty: "", unit: "Strip", lowStockAlert: "20", category: "", gstRate: "12" });
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
+  const [viewingPurchase, setViewingPurchase] = useState(null); // purchase detail modal
   const [purchaseForm, setPurchaseForm] = useState({ supplierName: "", invoiceNumber: "", invoiceDate: "", paymentStatus: "Unpaid", items: [] });
   const [purchaseItem, setPurchaseItem] = useState({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", quantity: "", unit: "Strip", gstRate: "12" });
   const [previewItems, setPreviewItems] = useState([]);
@@ -3930,6 +3931,25 @@ export default function PharmacyApp() {
     } catch (err) { 
       alert("Error deleting purchase: " + err.message); 
     }
+  };
+
+  const updatePurchasePayment = async (p, newStatus) => {
+    try {
+      await updateDoc(doc(db, "purchases", p.id), { paymentStatus: newStatus, updatedAt: serverTimestamp() });
+      const sup = suppliers.find(s => s.name?.toLowerCase() === p.supplierName?.toLowerCase());
+      if (sup) {
+        // Recalculate outstanding
+        const wasUnpaid = p.paymentStatus === "Unpaid";
+        const nowUnpaid = newStatus === "Unpaid";
+        let outstandingDelta = 0;
+        if (wasUnpaid && !nowUnpaid) outstandingDelta = -(p.totalAmount || 0); // paid off
+        if (!wasUnpaid && nowUnpaid)  outstandingDelta =  (p.totalAmount || 0); // marked unpaid
+        await updateDoc(doc(db, "suppliers", sup.id), {
+          outstanding: Math.max(0, (sup.outstanding || 0) + outstandingDelta)
+        });
+      }
+      setViewingPurchase(prev => prev ? { ...prev, paymentStatus: newStatus } : null);
+    } catch (err) { alert("Error updating payment: " + err.message); }
   };
 
   const deleteSale = async (s) => {
@@ -8064,15 +8084,139 @@ export default function PharmacyApp() {
               </div>
               {purchases.length===0?<div style={{ color:C.text3,fontSize:13,padding:"16px 0" }}>No purchases yet. Use the AI scanner or add manually!</div>
                 :purchases.slice(0,20).map(p=>(
-                  <div key={p.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}` }}>
+                  <div key={p.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`, cursor:"pointer" }}
+                    onClick={() => setViewingPurchase(p)}>
                     <div><div style={{ fontSize:13,fontWeight:600,color:C.navy }}>{p.supplierName} <span style={{ color:C.text3,fontWeight:400,fontSize:12 }}>#{p.invoiceNumber}</span></div><div style={{ fontSize:11,color:C.text3,marginTop:1 }}>{p.invoiceDate} · {(p.items||[]).length} items</div></div>
                     <div style={{ display:"flex",gap:14,alignItems:"center" }}>
                       <div style={{ textAlign:"right" }}><div style={{ fontSize:14,fontWeight:700,color:C.navy }}>₹{(p.totalAmount||0).toFixed(2)}</div><span style={S.badge(p.paymentStatus==="Paid"?"green":p.paymentStatus==="Partial"?"amber":"red")}>{p.paymentStatus}</span></div>
-                      <button onClick={() => deletePurchase(p)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 13, padding: 5 }} title="Delete Purchase Invoice">🗑️</button>
+                      <button onClick={(e) => { e.stopPropagation(); deletePurchase(p); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 13, padding: 5 }} title="Delete Purchase Invoice">🗑️</button>
                     </div>
                   </div>
                 ))}
             </div>
+
+            {/* ── Purchase Detail / Edit Modal ── */}
+            {viewingPurchase && (() => {
+              const p = viewingPurchase;
+              const totalItems = (p.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
+              return (
+                <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.55)",zIndex:1200,display:"flex",alignItems:"flex-start",justifyContent:"flex-end" }}
+                  onClick={() => setViewingPurchase(null)}>
+                  <div style={{ width:"min(96vw,680px)",height:"100vh",overflowY:"auto",background:"#fff",boxShadow:"-4px 0 32px rgba(0,0,0,0.18)",display:"flex",flexDirection:"column" }}
+                    onClick={e => e.stopPropagation()}>
+
+                    {/* Header */}
+                    <div style={{ background:C.navy,color:"#fff",padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0 }}>
+                      <div>
+                        <div style={{ fontSize:16,fontWeight:800,letterSpacing:"-0.3px" }}>Purchase Invoice Detail</div>
+                        <div style={{ fontSize:12,opacity:0.75,marginTop:2 }}>#{p.invoiceNumber} · {p.supplierName}</div>
+                      </div>
+                      <button onClick={() => setViewingPurchase(null)} style={{ background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",fontSize:18,width:34,height:34,borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>✕</button>
+                    </div>
+
+                    {/* Meta Info */}
+                    <div style={{ padding:"16px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8FAFC",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,flexShrink:0 }}>
+                      {[
+                        ["Supplier",         p.supplierName || "—"],
+                        ["Invoice No",        p.invoiceNumber || "—"],
+                        ["Invoice Date",      p.invoiceDate || "—"],
+                        ["Total Items (qty)", totalItems],
+                        ["Total Amount",      `₹${(p.totalAmount||0).toFixed(2)}`],
+                        ["Payment Status",    null]
+                      ].map(([label, val], i) => (
+                        <div key={i}>
+                          <div style={{ fontSize:10,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:3 }}>{label}</div>
+                          {val !== null
+                            ? <div style={{ fontSize:13,fontWeight:600,color:C.navy }}>{val}</div>
+                            : <select
+                                value={p.paymentStatus}
+                                onChange={e => updatePurchasePayment(p, e.target.value)}
+                                style={{ ...S.input,fontSize:12,padding:"5px 8px",fontWeight:700,
+                                  color: p.paymentStatus==="Paid"?C.green:p.paymentStatus==="Partial"?C.amber:C.red,
+                                  borderColor: p.paymentStatus==="Paid"?C.green:p.paymentStatus==="Partial"?C.amber:C.red }}
+                              >
+                                {["Unpaid","Partial","Paid"].map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                          }
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Items Table */}
+                    <div style={{ flex:1,overflowY:"auto",padding:"16px 20px" }}>
+                      <div style={{ fontSize:12,fontWeight:700,color:C.navy,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:10 }}>Items in this Invoice</div>
+                      <div style={{ overflowX:"auto" }}>
+                        <table style={{ width:"100%",borderCollapse:"collapse",fontSize:12 }}>
+                          <thead>
+                            <tr style={{ background:"#F1F5F9" }}>
+                              {["#","Medicine","Batch No","Expiry","Qty","Purchase Price","MRP","GST%","Total"].map(h => (
+                                <th key={h} style={{ ...S.th,padding:"8px 10px",fontSize:10 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(p.items||[]).length === 0 ? (
+                              <tr><td colSpan={9} style={{ ...S.td,textAlign:"center",color:C.text3,padding:"16px 0",fontStyle:"italic" }}>No items found in this invoice.</td></tr>
+                            ) : (
+                              (p.items||[]).map((item, idx) => {
+                                const bExp = item.expiryDate || "—";
+                                const isExpiredItem = (() => { try { const [mo,yr] = bExp.split("/"); const y = yr?.length===2?2000+parseInt(yr):parseInt(yr); return new Date(y,parseInt(mo)-1,28) < new Date(); } catch { return false; } })();
+                                const itemTotal = (item.purchasePrice||0)*(item.quantity||item.qty||0);
+                                return (
+                                  <tr key={idx} style={{ borderBottom:`1px solid ${C.border}`,background:isExpiredItem?"#FFF5F5":"transparent" }}>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"center",color:C.text3 }}>{idx+1}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px" }}>
+                                      <div style={{ fontWeight:600,color:C.navy }}>{item.brandName||item.genericName}</div>
+                                      {item.genericName && item.genericName!==item.brandName && <div style={{ fontSize:10,color:C.text3,fontStyle:"italic" }}>{item.genericName}</div>}
+                                      {item.strength && <div style={{ fontSize:10,color:C.text3 }}>{item.strength} · {item.form}</div>}
+                                    </td>
+                                    <td style={{ ...S.td,padding:"8px 10px",fontFamily:"monospace",fontWeight:700,color:C.blue }}>{item.batchNumber||"—"}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",color:isExpiredItem?C.red:C.navy,fontWeight:isExpiredItem?700:400 }}>
+                                      {bExp}{isExpiredItem && <span style={{ marginLeft:4,fontSize:9,background:"#FDECEA",color:C.red,borderRadius:3,padding:"1px 4px",fontWeight:700 }}>EXPIRED</span>}
+                                    </td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"center",fontWeight:700 }}>{item.quantity||item.qty||0}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"right" }}>₹{(item.purchasePrice||0).toFixed(2)}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"right" }}>₹{(item.mrp||0).toFixed(2)}</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"center" }}>{item.gstRate||0}%</td>
+                                    <td style={{ ...S.td,padding:"8px 10px",textAlign:"right",fontWeight:700,color:C.navy }}>₹{itemTotal.toFixed(2)}</td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                          {(p.items||[]).length > 0 && (
+                            <tfoot>
+                              <tr style={{ background:C.navy,color:"#fff" }}>
+                                <td colSpan={4} style={{ padding:"8px 10px",fontWeight:700,color:"#fff" }}>TOTAL</td>
+                                <td style={{ padding:"8px 10px",textAlign:"center",fontWeight:700,color:"#fff" }}>{totalItems}</td>
+                                <td colSpan={3} style={{ padding:"8px 10px",color:"#fff" }}></td>
+                                <td style={{ padding:"8px 10px",textAlign:"right",fontWeight:800,color:"#FDE68A" }}>₹{(p.totalAmount||0).toFixed(2)}</td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Footer actions */}
+                    <div style={{ padding:"14px 20px",borderTop:`1px solid ${C.border}`,display:"flex",gap:10,flexShrink:0,background:"#F8FAFC" }}>
+                      <button style={{ ...S.btn("teal"),flex:1 }} onClick={() => {
+                        setViewingPurchase(null);
+                        setPurchaseForm({
+                          supplierName: p.supplierName||``,
+                          invoiceNumber: p.invoiceNumber||``,
+                          invoiceDate: p.invoiceDate||``,
+                          paymentStatus: p.paymentStatus||`Unpaid`,
+                          items: p.items||[]
+                        });
+                        setShowPurchaseForm(true);
+                      }}>✏️ Edit / Re-open Invoice</button>
+                      <button style={{ ...S.btn("outline") }} onClick={() => setViewingPurchase(null)}>Close</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {suppliers.length>0&&(
               <div style={S.card}>
                 <div style={{ fontSize:12,fontWeight:700,color:C.navy,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:14 }}>Supplier Ledger</div>
