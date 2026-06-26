@@ -2225,7 +2225,10 @@ export default function PharmacyApp() {
       setAiStatus("Gemini AI is reading your invoice...");
 
       // Direct client-side fetch to bypass Vercel limits and allow large file sizes/longer timeouts
-      const GEMINI_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "AIzaSyBRkoDqCQzm9_xBNIPpIyXEXENLw3UnZdQ";
+      const GEMINI_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+      if (!GEMINI_KEY) {
+        throw new Error("Gemini API Key is missing. Please configure NEXT_PUBLIC_GEMINI_API_KEY in Vercel project settings.");
+      }
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_KEY}`;
 
       const geminiBody = {

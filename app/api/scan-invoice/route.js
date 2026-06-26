@@ -8,7 +8,7 @@ export async function POST(request) {
     if (!GEMINI_KEY) {
       return Response.json({
         success: false,
-        error: "GEMINI KEY MISSING - not found in environment",
+        error: "GEMINI KEY MISSING - please configure NEXT_PUBLIC_GEMINI_API_KEY in Vercel environment settings",
         debug: { hasKey: false }
       }, { status: 500 });
     }
