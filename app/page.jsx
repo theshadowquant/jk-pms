@@ -3572,7 +3572,7 @@ export default function PharmacyApp() {
     if (!purchaseForm.supplierName || !purchaseForm.items.length) { alert("Add supplier name and at least one item."); return; }
     if (!storeId) { alert("Error: No store linked to user."); return; }
     try {
-      const totalAmount = purchaseForm.items.reduce((a, i) => a + (+(i.purchasePrice || 0) * +(i.quantity || 0)), 0);
+      const totalAmount = purchaseForm.items.reduce((a, i) => a + (+(i.purchasePrice || 0) * +(i.quantity || 0) * (1 + +(i.gstRate || 12) / 100)), 0);
       
       // Save distributor reference or create
       let distId = "";
@@ -7872,7 +7872,7 @@ export default function PharmacyApp() {
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 950 }}>
                     <thead>
                       <tr style={{ background: "#F8FAFC" }}>
-                        {["Incoming Drug", "Specs", "Expiry", "Printed MRP", "Retail Selling", "Buy Rate", "Qty", "Similarity", "Resolution Binding", ""].map(h => <th key={h} style={{ ...S.th, padding: "12px 14px" }}>{h}</th>)}
+                        {["Incoming Drug", "Specs", "Expiry", "Printed MRP", "Retail Selling", "Buy Rate", "Qty", "GST%", "Similarity", "Resolution Binding", ""].map(h => <th key={h} style={{ ...S.th, padding: "12px 14px" }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -7905,6 +7905,9 @@ export default function PharmacyApp() {
                             </td>
                             <td style={{ ...S.td, padding: "12px 14px" }}>
                               <input type="number" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 56 }} value={item.quantity} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, quantity: +e.target.value} : it)}))} />
+                            </td>
+                            <td style={{ ...S.td, padding: "12px 14px" }}>
+                              <input type="text" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: 48 }} value={item.gstRate || "12"} onChange={e => setPurchaseForm(p => ({...p, items: p.items.map((it, i) => i === idx ? {...it, gstRate: e.target.value} : it)}))} />
                             </td>
                             <td style={{ ...S.td, padding: "12px 14px" }}>
                               <span style={S.badge(isMatch ? "green" : isConflict ? "amber" : "blue")}>
@@ -8038,11 +8041,11 @@ export default function PharmacyApp() {
                   <div style={{ marginBottom:14,overflowX:"auto" }}>
                     <div style={{ fontSize:12,fontWeight:700,color:C.navy,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px" }}>Items ({purchaseForm.items.length}) — Edit if needed</div>
                     <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
-                      <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Str","Form","Batch","Expiry","MRP ₹","Retail ₹","Buy ₹","Qty",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                      <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Str","Form","Batch","Expiry","MRP ₹","Retail ₹","Buy ₹","Qty","GST%",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                       <tbody>{purchaseForm.items.map((item,idx)=>(
                         <tr key={idx}>
-                          {["genericName","brandName","strength","form","batchNumber","expiryDate","mrp","sellingPrice","purchasePrice","quantity"].map(key=>(
-                            <td key={key} style={S.td}><input style={{ ...S.input,fontSize:12,padding:"5px 8px",width:key==="genericName"?120:key==="brandName"?100:key==="strength" || key==="form"?60:75 }} value={item[key]||""} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseForm(p=>({...p,items:p.items.map((it,i)=>i===idx?{...it,[key]:e.target.value}:it)}))} /></td>
+                          {["genericName","brandName","strength","form","batchNumber","expiryDate","mrp","sellingPrice","purchasePrice","quantity","gstRate"].map(key=>(
+                            <td key={key} style={S.td}><input style={{ ...S.input,fontSize:12,padding:"5px 8px",width:key==="genericName"?120:key==="brandName"?100:key==="strength" || key==="form"?60:key==="quantity" || key==="gstRate"?48:75 }} value={item[key]||""} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseForm(p=>({...p,items:p.items.map((it,i)=>i===idx?{...it,[key]:e.target.value}:it)}))} /></td>
                           ))}
                           <td style={S.td}>
                             <button 
@@ -8063,7 +8066,7 @@ export default function PharmacyApp() {
                 <div style={{ background:"#F8FAFC",border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14 }}>
                   <div style={{ fontSize:11,fontWeight:700,color:C.text3,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:10 }}>Add Item Manually</div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr)) auto",gap:8,alignItems:"end" }}>
-                    {[["Generic*","genericName","text"],["Brand","brandName","text"],["Strength","strength","text"],["Form","form","text"],["Barcode","barcode","text"],["Batch","batchNumber","text"],["Expiry","expiryDate","text"],["MRP","mrp","number"],["Retail ₹","sellingPrice","number"],["Buy ₹","purchasePrice","number"],["Qty*","quantity","number"]].map(([label,key,type])=>(
+                    {[["Generic*","genericName","text"],["Brand","brandName","text"],["Strength","strength","text"],["Form","form","text"],["Barcode","barcode","text"],["Batch","batchNumber","text"],["Expiry","expiryDate","text"],["MRP","mrp","number"],["Retail ₹","sellingPrice","number"],["Buy ₹","purchasePrice","number"],["Qty*","quantity","number"],["GST %","gstRate","text"]].map(([label,key,type])=>(
                       <div key={key}><label style={{ ...S.label,fontSize:10 }}>{label}</label><input type={type} style={{ ...S.input,padding:"7px 8px",fontSize:12 }} value={purchaseItem[key]} placeholder={key==="expiryDate"?"YYYY-MM":""} onChange={e=>setPurchaseItem(p=>({...p,[key]:e.target.value}))} /></div>
                     ))}
                     <button style={{ ...S.btn("teal"),padding:"8px 12px",alignSelf:"flex-end" }} onClick={addPurchaseItem}>+ Add</button>
@@ -8072,7 +8075,7 @@ export default function PharmacyApp() {
                 <div style={{ display:"flex",gap:10,alignItems:"center",flexWrap:"wrap" }}>
                   <button style={{ ...S.btn("green"),fontSize:14,padding:"11px 22px" }} onClick={savePurchase}>Save + Update Stock</button>
                   <button style={S.btn("outline")} onClick={()=>{setShowPurchaseForm(false);setAiStatus("");setPurchaseForm({supplierName:"",invoiceNumber:"",invoiceDate:"",paymentStatus:"Unpaid",items:[]});}}>Cancel</button>
-                  {purchaseForm.items.length>0&&<span style={S.badge("teal")}>{purchaseForm.items.length} items · ₹{purchaseForm.items.reduce((a,i)=>a+(+(i.purchasePrice||0)*(+(i.quantity||0))),0).toFixed(2)}</span>}
+                  {purchaseForm.items.length>0&&<span style={S.badge("teal")}>{purchaseForm.items.length} items · ₹{purchaseForm.items.reduce((a,i)=>a+(+(i.purchasePrice||0)*(+(i.quantity||0))*(1 + +(i.gstRate||12)/100)),0).toFixed(2)}</span>}
                 </div>
               </div>
             )}
@@ -8161,7 +8164,7 @@ export default function PharmacyApp() {
                               (p.items||[]).map((item, idx) => {
                                 const bExp = item.expiryDate || "—";
                                 const isExpiredItem = (() => { try { const [mo,yr] = bExp.split("/"); const y = yr?.length===2?2000+parseInt(yr):parseInt(yr); return new Date(y,parseInt(mo)-1,28) < new Date(); } catch { return false; } })();
-                                const itemTotal = (item.purchasePrice||0)*(item.quantity||item.qty||0);
+                                const itemTotal = (item.purchasePrice||0)*(item.quantity||item.qty||0)*(1 + +(item.gstRate||0)/100);
                                 return (
                                   <tr key={idx} style={{ borderBottom:`1px solid ${C.border}`,background:isExpiredItem?"#FFF5F5":"transparent" }}>
                                     <td style={{ ...S.td,padding:"8px 10px",textAlign:"center",color:C.text3 }}>{idx+1}</td>
