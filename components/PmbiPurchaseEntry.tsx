@@ -62,6 +62,286 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
   // Active items in current invoice
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
 
+  // Import Panel States
+  const [showImportPanel, setShowImportPanel] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
+  const [importPreviewData, setImportPreviewData] = useState<any>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  
+  const excelInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  const downloadExcelTemplate = async () => {
+    try {
+      const XLSX = await import("xlsx");
+      const wsData = [
+        ["Drug Code", "Batch Number", "Manufacturing Date", "Expiry Date", "MRP", "Purchase Rate", "Quantity", "Free Quantity", "Discount %"],
+        ["123", "B-OS-200", "2026-01", "2029-01", "120.00", "80.00", "50", "0", "0"]
+      ];
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, "Purchase Template");
+      XLSX.writeFile(wb, "pmbi_purchase_template.xlsx");
+    } catch (e: any) {
+      alert("Failed compiling template workbook.");
+    }
+  };
+
+  const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    setImportStatus("Parsing spreadsheet file...");
+    try {
+      const XLSX = await import("xlsx");
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const bstr = evt.target?.result;
+          const wb = XLSX.read(bstr, { type: "binary" });
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          
+          if (!json || json.length === 0) throw new Error("File is empty.");
+
+          let headerIdx = -1;
+          for (let i = 0; i < json.length; i++) {
+            if (json[i].some(cell => {
+              const s = String(cell || "").toLowerCase();
+              return s.includes("code") || s.includes("generic") || s.includes("batch") || s.includes("mrp");
+            })) {
+              headerIdx = i;
+              break;
+            }
+          }
+
+          if (headerIdx === -1) {
+            throw new Error("Could not detect header row.");
+          }
+
+          const headers = json[headerIdx].map(h => String(h || "").trim().toLowerCase());
+          const rows = json.slice(headerIdx + 1);
+
+          const idxMap = {
+            drugCode: headers.findIndex(h => h.includes("code")),
+            genericName: headers.findIndex(h => h.includes("generic") || h.includes("name") || h.includes("composition")),
+            batchNumber: headers.findIndex(h => h.includes("batch")),
+            manufacturingDate: headers.findIndex(h => h.includes("mfg") || h.includes("manufactur")),
+            expiryDate: headers.findIndex(h => h.includes("exp")),
+            mrp: headers.findIndex(h => h.includes("mrp")),
+            purchasePrice: headers.findIndex(h => h.includes("pur") || h.includes("rate") || h.includes("cost")),
+            quantity: headers.findIndex(h => h.includes("qty") || h.includes("quant")),
+            freeQuantity: headers.findIndex(h => h.includes("free")),
+            discount: headers.findIndex(h => h.includes("disc")),
+          };
+
+          const itemsList: any[] = [];
+          rows.forEach((row, ri) => {
+            if (!row || row.length === 0 || !row[idxMap.batchNumber || 0]) return;
+
+            const rawCode = idxMap.drugCode !== -1 ? String(row[idxMap.drugCode] || "").trim() : "";
+            const rawName = idxMap.genericName !== -1 ? String(row[idxMap.genericName] || "").trim() : "";
+
+            let resolvedMed: any = null;
+            if (rawCode) {
+              resolvedMed = medicines.find(m => m.category === "PMBI" && m.drugCode?.toLowerCase() === rawCode.toLowerCase());
+            }
+            if (!resolvedMed && rawName) {
+              resolvedMed = medicines.find(m => m.category === "PMBI" && m.genericName?.toLowerCase() === rawName.toLowerCase());
+            }
+
+            const mVal = resolvedMed || {};
+            const mrpVal = idxMap.mrp !== -1 ? parseFloat(String(row[idxMap.mrp])) : parseFloat(mVal.mrp) || 0;
+            const purVal = idxMap.purchasePrice !== -1 ? parseFloat(String(row[idxMap.purchasePrice])) : parseFloat(mVal.purchasePrice) || 0;
+            const qtyVal = idxMap.quantity !== -1 ? parseInt(String(row[idxMap.quantity]), 10) : 0;
+            const freeVal = idxMap.freeQuantity !== -1 ? parseInt(String(row[idxMap.freeQuantity]), 10) : 0;
+            const discVal = idxMap.discount !== -1 ? parseFloat(String(row[idxMap.discount])) : 0;
+
+            if (qtyVal <= 0) return;
+
+            itemsList.push({
+              drugCode: (rawCode || mVal.drugCode || `TEMP-${ri}`).toUpperCase(),
+              genericName: rawName || mVal.genericName || "Imported Item",
+              brandName: rawName || mVal.genericName || "Imported Item",
+              companyName: mVal.companyName || "PMBI",
+              batchNumber: String(row[idxMap.batchNumber] || "").toUpperCase().trim(),
+              manufacturingDate: idxMap.manufacturingDate !== -1 ? String(row[idxMap.manufacturingDate] || "").trim() : new Date().toISOString().substring(0, 7),
+              expiryDate: idxMap.expiryDate !== -1 ? String(row[idxMap.expiryDate] || "").trim() : "2028-12",
+              mrp: isNaN(mrpVal) ? 0 : mrpVal,
+              purchasePrice: isNaN(purVal) ? 0 : purVal,
+              sellingPrice: parseFloat(mVal.sellingPrice) || mrpVal,
+              quantity: isNaN(qtyVal) ? 0 : qtyVal,
+              freeQuantity: isNaN(freeVal) ? 0 : freeVal,
+              gstRate: parseFloat(mVal.gstRate) || 12,
+              discount: isNaN(discVal) ? 0 : discVal,
+              isH1Drug: !!mVal.isH1Drug,
+              catalogMatched: !!resolvedMed
+            });
+          });
+
+          if (itemsList.length === 0) throw new Error("No items parsed.");
+
+          setImportPreviewData({
+            supplierName: "",
+            invoiceNumber: "IMP-" + new Date().toISOString().substring(2, 10).replace(/-/g, ""),
+            invoiceDate: new Date().toISOString().substring(0, 10),
+            items: itemsList
+          });
+          setShowPreviewModal(true);
+          setImportStatus("");
+          setIsImporting(false);
+        } catch (err: any) {
+          alert("Error parsing file: " + err.message);
+          setImportStatus("");
+          setIsImporting(false);
+        }
+      };
+      reader.readAsBinaryString(file);
+    } catch (e: any) {
+      alert("Spreadsheet Ingestion failed: " + e.message);
+      setIsImporting(false);
+      setImportStatus("");
+    }
+  };
+
+  const handlePdfImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    setImportStatus("Uploading & analyzing purchase invoice with Gemini AI...");
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const rawResult = reader.result as string;
+          const base64 = rawResult.split(",")[1];
+          const mimeType = file.type || "application/pdf";
+
+          const res = await fetch("/api/scan-invoice", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ base64, mimeType })
+          });
+
+          const resJson = await res.json();
+          if (!resJson.success) {
+            throw new Error(resJson.error || "Failed scanning invoice.");
+          }
+
+          const data = resJson.data;
+
+          const parsedItems = (data.items || []).map((item: any) => {
+            let resolvedMed = medicines.find(m => 
+              m.category === "PMBI" && 
+              ((item.genericName && m.genericName?.toLowerCase() === item.genericName.toLowerCase()) || 
+               (item.brandName && m.brandName?.toLowerCase() === item.brandName.toLowerCase()))
+            );
+
+            if (!resolvedMed && item.genericName) {
+              resolvedMed = medicines.find(m => m.category === "PMBI" && item.genericName.toLowerCase().includes((m.genericName || "").toLowerCase()));
+            }
+
+            const mVal = resolvedMed || {};
+            return {
+              drugCode: (mVal.drugCode || "TEMP").toUpperCase(),
+              genericName: item.genericName || item.brandName || "Unknown Item",
+              brandName: item.brandName || item.genericName || "Unknown Item",
+              companyName: mVal.companyName || "PMBI",
+              batchNumber: (item.batchNumber || "TEMP-BATCH").toUpperCase(),
+              manufacturingDate: item.manufacturingDate || new Date().toISOString().substring(0, 7),
+              expiryDate: item.expiryDate || "2029-12",
+              mrp: parseFloat(item.mrp) || 0,
+              purchasePrice: parseFloat(item.purchasePrice) || 0,
+              sellingPrice: parseFloat(item.sellingPrice) || parseFloat(item.mrp) || 0,
+              quantity: parseInt(item.quantity, 10) || 0,
+              freeQuantity: parseInt(item.freeQuantity, 10) || 0,
+              gstRate: parseFloat(item.gstRate) || parseFloat(mVal.gstRate) || 12,
+              discount: parseFloat(item.discount) || 0,
+              isH1Drug: !!mVal.isH1Drug,
+              catalogMatched: !!resolvedMed
+            };
+          });
+
+          setImportPreviewData({
+            supplierName: data.supplierName || "",
+            invoiceNumber: data.invoiceNumber || "",
+            invoiceDate: data.invoiceDate || new Date().toISOString().substring(0, 10),
+            items: parsedItems
+          });
+
+          setShowPreviewModal(true);
+          setImportStatus("");
+          setIsImporting(false);
+        } catch (err: any) {
+          alert("Gemini AI Scan failed: " + err.message);
+          setImportStatus("");
+          setIsImporting(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e: any) {
+      alert("AI Invoice Scan failed: " + e.message);
+      setIsImporting(false);
+      setImportStatus("");
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (!importPreviewData) return;
+
+    if (importPreviewData.supplierName) {
+      const matchSup = suppliers.find(s => s.name?.toLowerCase() === importPreviewData.supplierName.toLowerCase());
+      setSupplierName(importPreviewData.supplierName);
+      if (matchSup) {
+        setSupplierGstin(matchSup.gstin || "");
+        setSupplierPhone(matchSup.phone || "");
+      }
+    }
+    if (importPreviewData.invoiceNumber) {
+      setInvoiceNumber(importPreviewData.invoiceNumber);
+    }
+    if (importPreviewData.invoiceDate) {
+      setInvoiceDate(importPreviewData.invoiceDate);
+    }
+
+    const itemsToLoad = importPreviewData.items.map((item: any) => {
+      const qtyVal = item.quantity;
+      const freeQtyVal = item.freeQuantity;
+      const rateVal = item.purchasePrice;
+      const mrpVal = item.mrp;
+      const sellVal = item.sellingPrice || mrpVal;
+      const discVal = item.discount;
+      const gstRateVal = item.gstRate;
+
+      const grossAmount = rateVal * qtyVal;
+      const discountAmt = grossAmount * (discVal / 100);
+      const taxableAmount = grossAmount - discountAmt;
+      const totalGst = taxableAmount * (gstRateVal / 100);
+
+      const cgst = gstType === "Local State" ? totalGst / 2 : 0;
+      const sgst = gstType === "Local State" ? totalGst / 2 : 0;
+      const igst = gstType === "Interstate" ? totalGst : 0;
+
+      const totalAmount = taxableAmount + totalGst;
+
+      return {
+        ...item,
+        taxableAmount,
+        cgst,
+        sgst,
+        igst,
+        totalAmount
+      };
+    });
+
+    setInvoiceItems(prev => [...prev, ...itemsToLoad]);
+    setShowPreviewModal(false);
+    setImportPreviewData(null);
+    setShowImportPanel(false);
+  };
+
   // Item Form Entry
   const [drugCode, setDrugCode] = useState("");
   const [drugName, setDrugName] = useState("");
@@ -407,6 +687,84 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
+        {/* BULK IMPORT CONTROL DRAWER */}
+        <div style={{ ...S.card, background: "#fff", border: `1.5px solid ${C.border2}`, padding: "16px 20px", marginBottom: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => setShowImportPanel(!showImportPanel)}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>📥</span>
+              <div>
+                <strong style={{ fontSize: 14, color: C.navy }}>Bulk Import Purchase Invoice (AI Scanner / Excel / CSV)</strong>
+                <div style={{ fontSize: 11, color: C.text3, marginTop: 2 }}>Upload spreadsheet worksheet or use Gemini AI to scan PDF/Image invoices instantly.</div>
+              </div>
+            </div>
+            <button style={{ ...S.btn("outline"), padding: "6px 12px", fontSize: 12 }}>
+              {showImportPanel ? "✕ Hide Panel" : "▼ Expand Import"}
+            </button>
+          </div>
+
+          {showImportPanel && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+              {/* Zone A: AI PDF Scanner */}
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>📸</span>
+                  <strong style={{ fontSize: 13, color: C.navy }}>AI Purchase PDF/Image Scanner</strong>
+                </div>
+                <p style={{ fontSize: 11, color: C.text2, margin: 0 }}>Upload PDF/image of PMBI challan invoice. Gemini AI parses supplier info, dates, and item grids automatically.</p>
+                
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  ref={pdfInputRef}
+                  onChange={handlePdfImport}
+                  style={{ display: "none" }}
+                />
+                <button 
+                  type="button" 
+                  style={{ ...S.btn("primary"), marginTop: "auto" }} 
+                  onClick={() => pdfInputRef.current?.click()}
+                  disabled={isImporting}
+                >
+                  📸 Scan Invoice PDF / Image
+                </button>
+              </div>
+
+              {/* Zone B: Excel/CSV Import */}
+              <div style={{ background: "#F8FAFC", border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>📊</span>
+                  <strong style={{ fontSize: 13, color: C.navy }}>Excel / CSV Spreadsheet Ingest</strong>
+                </div>
+                <p style={{ fontSize: 11, color: C.text2, margin: 0 }}>Import batches using our standard Excel layout structure. Matches item names and resolutions automatically.</p>
+                
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  ref={excelInputRef}
+                  onChange={handleExcelImport}
+                  style={{ display: "none" }}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
+                  <button 
+                    type="button" 
+                    style={{ ...S.btn("teal"), flex: 1 }} 
+                    onClick={() => excelInputRef.current?.click()}
+                    disabled={isImporting}
+                  >
+                    📁 Upload Sheet
+                  </button>
+                  <button 
+                    type="button" 
+                    style={{ ...S.btn("outline"), flex: 1 }} 
+                    onClick={downloadExcelTemplate}
+                  >
+                    📥 Get Template
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         {/* INVOICE METADATA */}
         <div style={{ ...S.card, background: "#F8FAFC", border: `1.5px solid ${C.teal}` }}>
           <h3 style={{ fontSize: 13, fontWeight: 800, color: C.teal, margin: "0 0 12px 0", textTransform: "uppercase" }}>🧾 Invoice Header Details</h3>
@@ -718,6 +1076,275 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
           </div>
         )}
       </div>
+
+      {/* PREVIEW IMPORT DIALOG */}
+      {showPreviewModal && importPreviewData && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(10,35,66,0.3)", backdropFilter: "blur(3px)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: 16, width: "90%", maxWidth: 1000,
+            maxHeight: "90vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.15)", overflow: "hidden"
+          }}>
+            {/* Modal Header */}
+            <div style={{ background: C.navy, color: "#fff", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <strong style={{ fontSize: 15 }}>📋 Review Imported Purchase Details</strong>
+              <button 
+                type="button" 
+                onClick={() => { setShowPreviewModal(false); setImportPreviewData(null); }} 
+                style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 16, fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+              {/* Header mappings */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 20, padding: 14, background: "#F8FAFC", borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <div>
+                  <label style={S.label}>Extracted Supplier</label>
+                  <input 
+                    style={S.input} 
+                    value={importPreviewData.supplierName} 
+                    onChange={e => setImportPreviewData({ ...importPreviewData, supplierName: e.target.value })} 
+                    placeholder="Enter supplier name"
+                  />
+                </div>
+                <div>
+                  <label style={S.label}>Extracted Invoice Number</label>
+                  <input 
+                    style={S.input} 
+                    value={importPreviewData.invoiceNumber} 
+                    onChange={e => setImportPreviewData({ ...importPreviewData, invoiceNumber: e.target.value })} 
+                    placeholder="Invoice No"
+                  />
+                </div>
+                <div>
+                  <label style={S.label}>Extracted Invoice Date</label>
+                  <input 
+                    type="date" 
+                    style={S.input} 
+                    value={importPreviewData.invoiceDate} 
+                    onChange={e => setImportPreviewData({ ...importPreviewData, invoiceDate: e.target.value })} 
+                  />
+                </div>
+              </div>
+
+              {/* Items grid */}
+              <strong style={{ fontSize: 12, color: C.navy, textTransform: "uppercase", letterSpacing: "0.5px" }}>Line Items Extracted ({importPreviewData.items.length})</strong>
+              <div style={{ overflowX: "auto", marginTop: 8, border: `1.5px solid ${C.border}`, borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "#F8FAFC" }}>
+                      <th style={S.th}>Drug Code</th>
+                      <th style={S.th}>Generic Name</th>
+                      <th style={S.th}>Batch No</th>
+                      <th style={S.th}>Mfg / Exp Date</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>MRP</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>Pur. Price</th>
+                      <th style={{ ...S.th, textAlign: "center" }}>Qty + Free</th>
+                      <th style={{ ...S.th, textAlign: "center" }}>GST %</th>
+                      <th style={{ ...S.th, textAlign: "center" }}>Catalog Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreviewData.items.map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td style={S.td}>
+                          <input 
+                            style={{ ...S.input, padding: "5px 8px" }} 
+                            value={item.drugCode} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].drugCode = e.target.value.toUpperCase();
+                              const matched = medicines.find(m => m.category === "PMBI" && m.drugCode?.toLowerCase() === e.target.value.toLowerCase());
+                              if (matched) {
+                                updatedItems[idx].genericName = matched.genericName || updatedItems[idx].genericName;
+                                updatedItems[idx].gstRate = parseFloat(matched.gstRate) || 12;
+                                updatedItems[idx].isH1Drug = !!matched.isH1Drug;
+                                updatedItems[idx].catalogMatched = true;
+                              }
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <input 
+                            style={{ ...S.input, padding: "5px 8px" }} 
+                            value={item.genericName} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].genericName = e.target.value;
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <input 
+                            style={{ ...S.input, padding: "5px 8px" }} 
+                            value={item.batchNumber} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].batchNumber = e.target.value.toUpperCase();
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input 
+                              style={{ ...S.input, padding: "5px 8px", width: 75 }} 
+                              value={item.manufacturingDate} 
+                              onChange={e => {
+                                const updatedItems = [...importPreviewData.items];
+                                updatedItems[idx].manufacturingDate = e.target.value;
+                                setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                              }}
+                            />
+                            <input 
+                              style={{ ...S.input, padding: "5px 8px", width: 75 }} 
+                              value={item.expiryDate} 
+                              onChange={e => {
+                                const updatedItems = [...importPreviewData.items];
+                                updatedItems[idx].expiryDate = e.target.value;
+                                setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                              }}
+                            />
+                          </div>
+                        </td>
+                        <td style={S.td}>
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            style={{ ...S.input, padding: "5px 8px", textAlign: "right", width: 70 }} 
+                            value={item.mrp} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].mrp = parseFloat(e.target.value) || 0;
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            style={{ ...S.input, padding: "5px 8px", textAlign: "right", width: 70 }} 
+                            value={item.purchasePrice} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].purchasePrice = parseFloat(e.target.value) || 0;
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input 
+                              type="number" 
+                              style={{ ...S.input, padding: "5px 8px", textAlign: "center", width: 55 }} 
+                              value={item.quantity} 
+                              onChange={e => {
+                                const updatedItems = [...importPreviewData.items];
+                                updatedItems[idx].quantity = parseInt(e.target.value, 10) || 0;
+                                setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                              }}
+                            />
+                            <input 
+                              type="number" 
+                              style={{ ...S.input, padding: "5px 8px", textAlign: "center", width: 45 }} 
+                              value={item.freeQuantity} 
+                              onChange={e => {
+                                const updatedItems = [...importPreviewData.items];
+                                updatedItems[idx].freeQuantity = parseInt(e.target.value, 10) || 0;
+                                setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                              }}
+                            />
+                          </div>
+                        </td>
+                        <td style={S.td}>
+                          <select 
+                            style={{ ...S.input, padding: "5px 8px", width: 70 }} 
+                            value={item.gstRate} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].gstRate = parseFloat(e.target.value) || 12;
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          >
+                            <option value="0">0%</option>
+                            <option value="5">5%</option>
+                            <option value="12">12%</option>
+                            <option value="18">18%</option>
+                            <option value="28">28%</option>
+                          </select>
+                        </td>
+                        <td style={{ ...S.td, textAlign: "center" }}>
+                          {item.catalogMatched ? (
+                            <span style={{ fontSize: 10, fontWeight: 800, color: C.green, background: "#E8F5EE", borderRadius: 4, padding: "3px 6px" }}>
+                              ✓ Catalog Matched
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 800, color: C.amber, background: "#FFF8E7", borderRadius: 4, padding: "3px 6px" }}>
+                              ⚠ Temporary Row
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ background: "#F8FAFC", borderTop: `1px solid ${C.border}`, padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button 
+                type="button" 
+                style={S.btn("outline")} 
+                onClick={() => { setShowPreviewModal(false); setImportPreviewData(null); }}
+              >
+                ✕ Cancel Import
+              </button>
+              <button 
+                type="button" 
+                style={S.btn("green")} 
+                onClick={handleConfirmImport}
+              >
+                💾 Import & Load Into Invoice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Web Worker/AI Loading Overlay */}
+      {isImporting && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(10,35,66,0.25)", backdropFilter: "blur(2px)",
+          display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000
+        }}>
+          <div style={{
+            background: "#fff", border: `2px solid ${C.teal}`, borderRadius: 12,
+            padding: "20px 30px", boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+            textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12
+          }}>
+            <div style={{
+              width: 24, height: 24, borderRadius: "50%",
+              border: `3px solid ${C.teal}`, borderTopColor: "transparent",
+              animation: "spin 1s linear infinite"
+            }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>
+              {importStatus}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
