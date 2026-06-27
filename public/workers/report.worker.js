@@ -44,7 +44,7 @@ self.onmessage = function (e) {
         self.postMessage({ success: false, error: err.message, type });
       });
     } else if (type === "EXPORT_STOCK_INVENTORY_EXCEL") {
-      const buffer = transformStockInventoryToExcelBuffer(payload);
+      const buffer = transformStockInventoryToExcelBuffer(payload.items);
       self.postMessage({ success: true, fileData: buffer, type, fileName });
     } else if (type === "EXPORT_STOCK_INVENTORY_PDF") {
       transformStockInventoryToPDFBuffer(payload, (buffer) => {
