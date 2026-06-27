@@ -43,6 +43,15 @@ self.onmessage = function (e) {
       }, (err) => {
         self.postMessage({ success: false, error: err.message, type });
       });
+    } else if (type === "EXPORT_STOCK_INVENTORY_EXCEL") {
+      const buffer = transformStockInventoryToExcelBuffer(payload);
+      self.postMessage({ success: true, fileData: buffer, type, fileName });
+    } else if (type === "EXPORT_STOCK_INVENTORY_PDF") {
+      transformStockInventoryToPDFBuffer(payload, (buffer) => {
+        self.postMessage({ success: true, fileData: buffer, type, fileName });
+      }, (err) => {
+        self.postMessage({ success: false, error: err.message, type });
+      });
     }
   } catch (error) {
     self.postMessage({ success: false, error: error.message, type });
@@ -946,6 +955,134 @@ function transformPmbiToPDFBuffer(payload, callback, errCallback) {
                 { text: row.stockQty || 0, fontSize: 7, alignment: "center", bold: true },
                 { text: (row.stockValue || 0).toFixed(2), fontSize: 7, alignment: "right", bold: true, color: "#1B7A4E" }
               ])
+            ]
+          },
+          layout: {
+            hLineWidth: (i, node) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
+            vLineWidth: () => 0.5,
+            hLineColor: () => "#CBD5E0",
+            vLineColor: () => "#CBD5E0"
+          }
+        }
+      ],
+      styles: {
+        th: { bold: true, fontSize: 7.5, fillColor: "#F4F6F9" }
+      }
+    };
+    pdfMake.createPdf(docDefinition).getBuffer((buffer) => {
+      callback(buffer);
+    });
+  } catch (err) {
+    errCallback(err);
+  }
+}
+
+function transformStockInventoryToExcelBuffer(items) {
+  const wsData = [
+    [
+      "Drug Code", "Barcode", "Generic Name (Composition)", "Brand Name", "Form (UOM)",
+      "Company / Manufacturer", "MRP", "Landed Purchase Price", "Selling Price",
+      "GST Rate %", "Schedule H1 Compliance", "Total Stock Qty", "Landed Stock Value (₹)",
+      "Batches Detail"
+    ]
+  ];
+
+  items.forEach(med => {
+    const batchesStr = (med.batches || []).map(b => `${b.batchNumber} (Qty: ${b.quantity}, Exp: ${b.expiryDate})`).join(" | ");
+    wsData.push([
+      med.drugCode || "—",
+      med.barcode || "—",
+      med.genericName || "—",
+      med.brandName || "—",
+      med.form || "—",
+      med.companyName || "—",
+      med.mrp || 0,
+      med.purchasePrice || 0,
+      med.sellingPrice || 0,
+      `${med.gstRate || 0}%`,
+      med.isH1Drug ? "Yes" : "No",
+      med.stockQty || 0,
+      (med.stockQty || 0) * (med.purchasePrice || 0),
+      batchesStr || "—"
+    ]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  const cols = [
+    { wch: 12 }, { wch: 12 }, { wch: 35 }, { wch: 20 }, { wch: 10 },
+    { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+    { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 45 }
+  ];
+  ws["!cols"] = cols;
+
+  XLSX.utils.book_append_sheet(wb, ws, "Stock Inventory");
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  return wbout;
+}
+
+function transformStockInventoryToPDFBuffer(payload, callback, errCallback) {
+  try {
+    const { items, storeInfo } = payload;
+    const stockValSum = items.reduce((a, s) => a + (s.stockQty || 0) * (s.purchasePrice || 0), 0);
+    const docDefinition = {
+      pageSize: "A4",
+      pageOrientation: "landscape",
+      pageMargins: [20, 20, 20, 30],
+      footer: function(currentPage, pageCount) {
+        return { text: `Page ${currentPage} of ${pageCount}`, alignment: 'center', fontSize: 8, color: '#8A96A3', margin: [0, 10, 0, 0] };
+      },
+      content: [
+        {
+          columns: [
+            { text: (storeInfo?.name || "JANAUSHADHI PHARMACY").toUpperCase(), fontSize: 12, bold: true, color: "#0A2342" },
+            { text: "CURRENT STOCK INVENTORY REPORT", alignment: "right", fontSize: 10, bold: true, color: "#0D7377" }
+          ]
+        },
+        {
+          text: `Generated: ${new Date().toLocaleString("en-IN")} | Total Stock Valuation (Landed): ₹${stockValSum.toFixed(2)}`,
+          fontSize: 8,
+          margin: [0, 4, 0, 8]
+        },
+        { canvas: [{ type: "line", x1: 0, y1: 0, x2: 780, y2: 0, lineWidth: 1.0, strokeColor: "#0A2342" }], margin: [0, 0, 0, 10] },
+        {
+          table: {
+            headerRows: 1,
+            widths: ["8%", "18%", "12%", "6%", "6%", "7%", "7%", "5%", "5%", "7%", "8%", "11%"],
+            body: [
+              [
+                { text: "Code", style: "th" },
+                { text: "Composition (Generic)", style: "th" },
+                { text: "Brand Name", style: "th" },
+                { text: "Form", style: "th" },
+                { text: "MRP", style: "th", alignment: "right" },
+                { text: "Pur. Price", style: "th", alignment: "right" },
+                { text: "Sel. Price", style: "th", alignment: "right" },
+                { text: "GST", style: "th", alignment: "center" },
+                { text: "H1?", style: "th", alignment: "center" },
+                { text: "Stock Qty", style: "th", alignment: "center" },
+                { text: "Valuation (₹)", style: "th", alignment: "right" },
+                { text: "Batches Detail", style: "th" }
+              ],
+              ...items.map(row => {
+                const valuation = (row.stockQty || 0) * (row.purchasePrice || 0);
+                const batchesStr = (row.batches || []).map(b => `${b.batchNumber}(${b.quantity})`).join(", ");
+                return [
+                  { text: row.drugCode || row.barcode || "—", fontSize: 7 },
+                  { text: row.genericName || "—", fontSize: 7, bold: true },
+                  { text: row.brandName || "—", fontSize: 7 },
+                  { text: row.form || "—", fontSize: 7 },
+                  { text: (row.mrp || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                  { text: (row.purchasePrice || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                  { text: (row.sellingPrice || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                  { text: `${row.gstRate || 0}%`, fontSize: 7, alignment: "center" },
+                  { text: row.isH1Drug ? "Yes" : "No", fontSize: 7, alignment: "center", bold: row.isH1Drug, color: row.isH1Drug ? "#C0392B" : "#000" },
+                  { text: row.stockQty || 0, fontSize: 7, alignment: "center", bold: true },
+                  { text: valuation.toFixed(2), fontSize: 7, alignment: "right", bold: true, color: "#1B7A4E" },
+                  { text: batchesStr || "—", fontSize: 7 }
+                ];
+              })
             ]
           },
           layout: {

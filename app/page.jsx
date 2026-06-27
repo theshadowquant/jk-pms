@@ -6,6 +6,7 @@ import PmbiPurchaseEntry from "@/components/PmbiPurchaseEntry";
 import PmbiOpeningStock from "@/components/PmbiOpeningStock";
 import PmbiReports from "@/components/PmbiReports";
 import H1DrugTracking from "@/components/H1DrugTracking";
+import StockInventoryReport from "@/components/StockInventoryReport";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
@@ -7050,49 +7051,15 @@ Schema:
 
               {/* Card 12: Stock Report */}
               <div className="kpi-card" style={{ "--hover-accent": C.blue }} onClick={() => {
-                const printableReport = window.open("", "_blank");
-                const medRows = medicines.map(m => `
-                  <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${m.brandName || "—"}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${m.genericName}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${m.form || "Tablet"}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">${m.stockQty}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">₹${(m.mrp || 0).toFixed(2)}</td>
-                  </tr>
-                `).join("");
-                printableReport.document.write(`
-                  <html>
-                    <head>
-                      <title>Inventory Stock Report - ${storeName}</title>
-                      <style>body{font-family:sans-serif;padding:20px;} table{width:100%;border-collapse:collapse;}</style>
-                    </head>
-                    <body>
-                      <h2>Inventory Stock Report</h2>
-                      <p>Store: ${storeName} (Code: ${storeCode})</p>
-                      <p>Date: ${new Date().toLocaleString()}</p>
-                      <table>
-                        <thead>
-                          <tr style="background:#f4f6f9;">
-                            <th style="padding:8px;border:1px solid #ddd;">Brand Name</th>
-                            <th style="padding:8px;border:1px solid #ddd;">Composition</th>
-                            <th style="padding:8px;border:1px solid #ddd;">Form</th>
-                            <th style="padding:8px;border:1px solid #ddd;">Stock</th>
-                            <th style="padding:8px;border:1px solid #ddd;">MRP</th>
-                          </tr>
-                        </thead>
-                        <tbody>${medRows}</tbody>
-                      </table>
-                      <script>window.print();</script>
-                    </body>
-                  </html>
-                `);
+                setActiveTab("reports");
+                setReportsSubTab("stock-inventory");
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.text3, letterSpacing: "0.5px" }}>STOCK REPORT</span>
                   <span style={{ fontSize: 16 }}>📄</span>
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, marginTop: 8 }}>📄 Click to Print</div>
-                <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>Download or print stock inventory</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, marginTop: 8 }}>📋 Open Stock Report</div>
+                <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>View, filter, and export stock inventory</div>
               </div>
 
             </div>
@@ -9060,6 +9027,7 @@ Schema:
                 ["sales", "Sales Report", "📈"],
                 ["purchase", "Purchase Report", "📦"],
                 ["stock", "Stock Transaction Register", "🔄"],
+                ["stock-inventory", "Current Stock Report", "📋"],
                 ["gst", "GST Compliance & Ledger", "⚖️"],
                 ["adc", "ADC Inspection Register", "🛡️"]
               ].map(([id, label, icon]) => {
@@ -9539,6 +9507,16 @@ Schema:
                 })()}
                 </div> {/* close printable-purchase-report */}
               </div>
+            )}
+
+            {reportsSubTab === "stock-inventory" && (
+              <StockInventoryReport
+                db={db}
+                storeId={storeId}
+                storeCode={storeCode}
+                user={user}
+                medicines={medicines}
+              />
             )}
 
             {reportsSubTab === "stock" && (() => {
