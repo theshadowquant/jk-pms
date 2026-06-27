@@ -76,8 +76,8 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
     try {
       const XLSX = await import("xlsx");
       const wsData = [
-        ["Drug Code", "Batch Number", "Manufacturing Date", "Expiry Date", "MRP", "Purchase Rate", "Quantity", "Free Quantity", "Discount %"],
-        ["123", "B-OS-200", "2026-01", "2029-01", "120.00", "80.00", "50", "0", "0"]
+        ["DC Code", "Product Name", "Unit", "HSN Code", "Batch", "Qty.", "Mnf Date", "Exp Date", "MRP", "Rate", "Amount", "CGST value (%)", "SGST value(%)", "IGST value(%)"],
+        ["123", "LEVOCETIRIZINE 5MG", "Strip", "300490", "B-OS-200", "50", "2026-01", "2029-01", "120.00", "80.00", "4000.00", "6.0", "6.0", "0.0"]
       ];
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -110,7 +110,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
           for (let i = 0; i < json.length; i++) {
             if (json[i].some(cell => {
               const s = String(cell || "").toLowerCase();
-              return s.includes("code") || s.includes("generic") || s.includes("batch") || s.includes("mrp");
+              return s.includes("code") || s.includes("generic") || s.includes("batch") || s.includes("mrp") || s.includes("dc");
             })) {
               headerIdx = i;
               break;
@@ -125,16 +125,17 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
           const rows = json.slice(headerIdx + 1);
 
           const idxMap = {
-            drugCode: headers.findIndex(h => h.includes("code")),
-            genericName: headers.findIndex(h => h.includes("generic") || h.includes("name") || h.includes("composition")),
+            drugCode: headers.findIndex(h => h.includes("dc code") || h.includes("drug code") || h.includes("code")),
+            genericName: headers.findIndex(h => h.includes("product name") || h.includes("generic") || h.includes("name") || h.includes("composition")),
             batchNumber: headers.findIndex(h => h.includes("batch")),
-            manufacturingDate: headers.findIndex(h => h.includes("mfg") || h.includes("manufactur")),
-            expiryDate: headers.findIndex(h => h.includes("exp")),
+            manufacturingDate: headers.findIndex(h => h.includes("mnf date") || h.includes("mfg") || h.includes("manufactur")),
+            expiryDate: headers.findIndex(h => h.includes("exp date") || h.includes("exp")),
             mrp: headers.findIndex(h => h.includes("mrp")),
-            purchasePrice: headers.findIndex(h => h.includes("pur") || h.includes("rate") || h.includes("cost")),
+            purchasePrice: headers.findIndex(h => h.includes("rate") || h.includes("pur") || h.includes("cost")),
             quantity: headers.findIndex(h => h.includes("qty") || h.includes("quant")),
-            freeQuantity: headers.findIndex(h => h.includes("free")),
-            discount: headers.findIndex(h => h.includes("disc")),
+            cgstRate: headers.findIndex(h => h.includes("cgst")),
+            sgstRate: headers.findIndex(h => h.includes("sgst")),
+            igstRate: headers.findIndex(h => h.includes("igst")),
           };
 
           const itemsList: any[] = [];
@@ -156,8 +157,16 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
             const mrpVal = idxMap.mrp !== -1 ? parseFloat(String(row[idxMap.mrp])) : parseFloat(mVal.mrp) || 0;
             const purVal = idxMap.purchasePrice !== -1 ? parseFloat(String(row[idxMap.purchasePrice])) : parseFloat(mVal.purchasePrice) || 0;
             const qtyVal = idxMap.quantity !== -1 ? parseInt(String(row[idxMap.quantity]), 10) : 0;
-            const freeVal = idxMap.freeQuantity !== -1 ? parseInt(String(row[idxMap.freeQuantity]), 10) : 0;
-            const discVal = idxMap.discount !== -1 ? parseFloat(String(row[idxMap.discount])) : 0;
+            const freeVal = 0;
+            const discVal = 0;
+
+            const cgstRateVal = idxMap.cgstRate !== -1 ? parseFloat(String(row[idxMap.cgstRate])) : 0;
+            const sgstRateVal = idxMap.sgstRate !== -1 ? parseFloat(String(row[idxMap.sgstRate])) : 0;
+            const igstRateVal = idxMap.igstRate !== -1 ? parseFloat(String(row[idxMap.igstRate])) : 0;
+            let gstRateVal = igstRateVal > 0 ? igstRateVal : (cgstRateVal + sgstRateVal);
+            if (isNaN(gstRateVal) || gstRateVal === 0) {
+              gstRateVal = parseFloat(mVal.gstRate) || 12;
+            }
 
             if (qtyVal <= 0) return;
 
@@ -173,9 +182,9 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               purchasePrice: isNaN(purVal) ? 0 : purVal,
               sellingPrice: parseFloat(mVal.sellingPrice) || mrpVal,
               quantity: isNaN(qtyVal) ? 0 : qtyVal,
-              freeQuantity: isNaN(freeVal) ? 0 : freeVal,
-              gstRate: parseFloat(mVal.gstRate) || 12,
-              discount: isNaN(discVal) ? 0 : discVal,
+              freeQuantity: freeVal,
+              gstRate: gstRateVal,
+              discount: discVal,
               isH1Drug: !!mVal.isH1Drug,
               catalogMatched: !!resolvedMed
             });
