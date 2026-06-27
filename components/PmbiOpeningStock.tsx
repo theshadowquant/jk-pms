@@ -60,6 +60,8 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
   const [quantity, setQuantity] = useState("");
   const [gstRate, setGstRate] = useState("12");
   const [isH1Drug, setIsH1Drug] = useState(false);
+  const [editingMedId, setEditingMedId] = useState<string | null>(null);
+  const [editingBatchIndex, setEditingBatchIndex] = useState<number | null>(null);
 
   const [drugSearchFocused, setDrugSearchFocused] = useState(false);
   const [drugResults, setDrugResults] = useState<any[]>([]);
@@ -89,6 +91,88 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
     setDrugResults([]);
   };
 
+  const handleEditBatch = (med: any, batch: any, index: number) => {
+    setEditingMedId(med.id);
+    setEditingBatchIndex(index);
+    setDrugCode(med.drugCode || "");
+    setDrugName(med.genericName || "");
+    setBatchNumber(batch.batchNumber || "");
+    setManufacturingDate(batch.manufacturingDate || "");
+    setExpiryDate(batch.expiryDate || "");
+    setMrp(String(batch.mrp || med.mrp || ""));
+    setPurchasePrice(String(batch.purchasePrice || med.purchasePrice || ""));
+    setSellingPrice(String(batch.sellingPrice || med.sellingPrice || ""));
+    setQuantity(String(batch.quantity || ""));
+    setGstRate(String(med.gstRate || "12"));
+    setIsH1Drug(med.isH1Drug || false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMedId(null);
+    setEditingBatchIndex(null);
+    setDrugCode("");
+    setDrugName("");
+    setBatchNumber("");
+    setManufacturingDate("");
+    setExpiryDate("");
+    setMrp("");
+    setPurchasePrice("");
+    setSellingPrice("");
+    setQuantity("");
+    setGstRate("12");
+    setIsH1Drug(false);
+  };
+
+  const handleDeleteBatch = async (med: any, index: number) => {
+    const batch = med.batches?.[index];
+    if (!batch) return;
+    if (!window.confirm(`Are you sure you want to delete batch "${batch.batchNumber}"?`)) return;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const medRef = doc(db, "medicines", med.id);
+        const currentBatches = Array.isArray(med.batches) ? med.batches.map((b: any) => ({ ...b })) : [];
+        const deletedQty = currentBatches[index].quantity || 0;
+        currentBatches.splice(index, 1);
+
+        if (currentBatches.length === 0) {
+          transaction.delete(medRef);
+        } else {
+          const totalStock = currentBatches.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0);
+          transaction.update(medRef, {
+            stockQty: totalStock,
+            batches: currentBatches,
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        // Write audit log
+        const auditDoc = doc(collection(db, "inventory_audit_logs"));
+        transaction.set(auditDoc, {
+          storeId,
+          medicineId: med.id,
+          genericName: med.genericName,
+          brandName: med.brandName,
+          batchNumber: batch.batchNumber,
+          type: "DELETE_BATCH",
+          actionSource: "PMBI_OPENING_STOCK",
+          referenceId: "OPENING-STOCK-DELETE",
+          quantityChanged: -deletedQty,
+          previousQuantity: deletedQty,
+          newQuantity: 0,
+          purchasePrice: batch.purchasePrice || med.purchasePrice || 0,
+          createdAt: serverTimestamp(),
+          createdBy: user.uid
+        });
+      });
+
+      alert("✓ PMBI Opening Stock batch deleted successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Error deleting PMBI opening stock batch: " + err.message);
+    }
+  };
+
   const handleSaveOpeningStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!drugCode.trim()) { alert("Drug Code is mandatory."); return; }
@@ -109,6 +193,68 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
 
     try {
       await runTransaction(db, async (transaction) => {
+        if (editingMedId) {
+          const medRef = doc(db, "medicines", editingMedId);
+          const existingMed = medicines.find((m: any) => m.id === editingMedId);
+          if (!existingMed) {
+            throw new Error("Medicine being edited was not found in catalog.");
+          }
+
+          const currentBatches = Array.isArray(existingMed.batches) ? existingMed.batches.map((b: any) => ({ ...b })) : [];
+          if (editingBatchIndex === null || editingBatchIndex < 0 || editingBatchIndex >= currentBatches.length) {
+            throw new Error("Batch being edited was not found.");
+          }
+
+          const oldQty = currentBatches[editingBatchIndex].quantity || 0;
+          currentBatches[editingBatchIndex] = {
+            ...currentBatches[editingBatchIndex],
+            batchNumber: batchNumber.toUpperCase().trim(),
+            expiryDate: expiryDate.trim(),
+            manufacturingDate: manufacturingDate.trim(),
+            quantity: qtyVal,
+            purchasePrice: purchaseVal,
+            mrp: mrpVal,
+            sellingPrice: sellVal
+          };
+
+          const totalStock = currentBatches.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0);
+
+          transaction.update(medRef, {
+            drugCode: drugCode.toUpperCase().trim(),
+            genericName: drugName.trim(),
+            brandName: drugName.trim(),
+            mrp: mrpVal,
+            sellingPrice: sellVal,
+            purchasePrice: purchaseVal,
+            gstRate: gstRateVal,
+            expiryDate: expiryDate.trim(),
+            stockQty: totalStock,
+            batches: currentBatches,
+            isH1Drug,
+            updatedAt: serverTimestamp()
+          });
+
+          const auditDoc = doc(collection(db, "inventory_audit_logs"));
+          transaction.set(auditDoc, {
+            storeId,
+            medicineId: editingMedId,
+            genericName: drugName.trim(),
+            brandName: drugName.trim(),
+            batchNumber: batchNumber.toUpperCase().trim(),
+            type: "OPENING_STOCK_EDIT",
+            actionSource: "PMBI_OPENING_STOCK",
+            referenceId: "OPENING-STOCK-EDIT",
+            quantityChanged: qtyVal - oldQty,
+            previousQuantity: oldQty,
+            newQuantity: qtyVal,
+            purchasePrice: purchaseVal,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid
+          });
+
+          return;
+        }
+
         // Find existing medicine by drugCode
         const existingMed = medicines.find((m: any) => 
           m.category === "PMBI" && 
@@ -238,10 +384,16 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
       setQuantity("");
       setGstRate("12");
       setIsH1Drug(false);
-      alert("✓ PMBI Opening Stock registered successfully. Catalog and batch files initialized!");
+      if (editingMedId) {
+        setEditingMedId(null);
+        setEditingBatchIndex(null);
+        alert("✓ PMBI Opening Stock batch updated successfully!");
+      } else {
+        alert("✓ PMBI Opening Stock registered successfully. Catalog and batch files initialized!");
+      }
     } catch (err: any) {
       console.error(err);
-      alert("Error adding PMBI opening stock: " + err.message);
+      alert("Error saving PMBI opening stock: " + err.message);
     }
   };
 
@@ -253,7 +405,9 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
       {/* HEADER BAR */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: C.navy, margin: 0 }}>➕ PMBI Opening Stock Entry</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: C.navy, margin: 0 }}>
+            {editingMedId !== null ? "✏️ Edit PMBI Opening Stock Batch" : "➕ PMBI Opening Stock Entry"}
+          </h2>
           <div style={{ fontSize: 12, color: C.text3, marginTop: 2 }}>Directly upload initial inventory levels for Jan Aushadhi medicines. Safe Mode isolated ingestion.</div>
         </div>
       </div>
@@ -376,9 +530,14 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
               </label>
             </div>
 
-            <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+              {editingMedId !== null && (
+                <button type="button" style={S.btn("outline")} onClick={handleCancelEdit}>
+                  Cancel Edit
+                </button>
+              )}
               <button type="submit" style={S.btn("teal")}>
-                ＋ Save PMBI Opening Stock Batch
+                {editingMedId !== null ? "💾 Save Batch Changes" : "＋ Save PMBI Opening Stock Batch"}
               </button>
             </div>
           </form>
@@ -431,11 +590,31 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
                         )}
                       </td>
                       <td style={S.td}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           {(med.batches || []).map((b: any, bi: number) => (
-                            <span key={bi} style={{ fontSize: 10, fontFamily: "monospace", color: C.text2 }}>
-                              Batch: <strong>{b.batchNumber}</strong> (Qty: {b.quantity}) · Exp: {b.expiryDate}
-                            </span>
+                            <div key={bi} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, borderBottom: bi < (med.batches.length - 1) ? `1px solid ${C.border}` : "none", paddingBottom: bi < (med.batches.length - 1) ? 4 : 0 }}>
+                              <span style={{ fontSize: 11, fontFamily: "monospace", color: C.text2 }}>
+                                Batch: <strong>{b.batchNumber}</strong> (Qty: {b.quantity}) · Exp: {b.expiryDate}
+                              </span>
+                              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditBatch(med, b, bi)}
+                                  style={{ background: "none", border: "none", color: C.blue, cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 2 }}
+                                  title="Edit Batch"
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBatch(med, bi)}
+                                  style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 2 }}
+                                  title="Delete Batch"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       </td>
