@@ -988,7 +988,7 @@ function transformStockInventoryToExcelBuffer(items) {
   ];
 
   items.forEach(med => {
-    const batchesStr = (med.batches || []).map(b => `${b.batchNumber} (Qty: ${b.quantity}, Exp: ${b.expiryDate})`).join(" | ");
+    const batchesStr = (med.batches || []).map(b => b.batchNumber).join(" | ");
     wsData.push([
       med.drugCode || "—",
       med.barcode || "—",
@@ -1067,7 +1067,7 @@ function transformStockInventoryToPDFBuffer(payload, callback, errCallback) {
               ],
               ...items.map(row => {
                 const valuation = (row.stockQty || 0) * (row.purchasePrice || 0);
-                const batchesStr = (row.batches || []).map(b => `${b.batchNumber}(${b.quantity})`).join(", ");
+                const batchesStr = (row.batches || []).map(b => b.batchNumber).join(", ");
                 return [
                   { text: row.drugCode || row.barcode || "—", fontSize: 7 },
                   { text: row.genericName || "—", fontSize: 7, bold: true },

@@ -185,7 +185,7 @@ export default function StockInventoryReport({ db, storeId, storeCode, user, med
     ].join(",");
     
     const rows = filteredMeds.map(m => {
-      const batchesStr = (m.batches || []).map((b: any) => `${b.batchNumber}(Qty:${b.quantity},Exp:${b.expiryDate})`).join(" | ");
+      const batchesStr = (m.batches || []).map((b: any) => b.batchNumber).join(" | ");
       return [
         `"${m.drugCode || ""}"`,
         `"${m.barcode || ""}"`,
@@ -423,7 +423,7 @@ export default function StockInventoryReport({ db, storeId, storeCode, user, med
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                           {(med.batches || []).map((b: any, bi: number) => (
                             <span key={bi} style={{ color: C.text2 }}>
-                              <strong>{b.batchNumber}</strong> ({b.quantity}) · Exp: {b.expiryDate}
+                              <strong>{b.batchNumber}</strong>
                             </span>
                           ))}
                           {(med.batches || []).length === 0 && <span style={{ color: C.text3 }}>—</span>}
