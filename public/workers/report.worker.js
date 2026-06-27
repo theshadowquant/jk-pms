@@ -16,6 +16,15 @@ self.onmessage = function (e) {
     } else if (type === "EXPORT_EXPIRY_EXCEL") {
       const buffer = transformExpiryToExcelBuffer(payload);
       self.postMessage({ success: true, fileData: buffer, type, fileName });
+    } else if (type === "EXPORT_PMBI_REPORTS_EXCEL") {
+      const buffer = transformPmbiToExcelBuffer(payload);
+      self.postMessage({ success: true, fileData: buffer, type, fileName });
+    } else if (type === "EXPORT_H1_SALES_EXCEL") {
+      const buffer = transformH1SalesToExcelBuffer(payload);
+      self.postMessage({ success: true, fileData: buffer, type, fileName });
+    } else if (type === "EXPORT_H1_PURCHASES_EXCEL") {
+      const buffer = transformH1PurchasesToExcelBuffer(payload);
+      self.postMessage({ success: true, fileData: buffer, type, fileName });
     } else if (type === "EXPORT_TAX_PDF") {
       transformTaxToPDFBuffer(payload, (buffer) => {
         self.postMessage({ success: true, fileData: buffer, type, fileName });
@@ -24,6 +33,12 @@ self.onmessage = function (e) {
       });
     } else if (type === "EXPORT_INVOICE_PDF") {
       transformInvoiceToPDFBuffer(payload, (buffer) => {
+        self.postMessage({ success: true, fileData: buffer, type, fileName });
+      }, (err) => {
+        self.postMessage({ success: false, error: err.message, type });
+      });
+    } else if (type === "EXPORT_PMBI_REPORTS_PDF") {
+      transformPmbiToPDFBuffer(payload, (buffer) => {
         self.postMessage({ success: true, fileData: buffer, type, fileName });
       }, (err) => {
         self.postMessage({ success: false, error: err.message, type });
@@ -37,7 +52,7 @@ self.onmessage = function (e) {
 function transformSalesToExcelBuffer(sales) {
   const wsData = [
     [
-      "Invoice No", "Date", "Customer Name", "Customer Phone",
+      "Invoice No", "Date", "Customer Name", "Customer Phone", "Drug Code",
       "Generic Name", "Brand Name", "Strength", "Form",
       "Batch Number", "Expiry Date", "Qty Sold", "MRP (Unit)",
       "Selling Price (Unit)", "Discount %", "Landed Purchase Price (Unit)",
@@ -77,6 +92,7 @@ function transformSalesToExcelBuffer(sales) {
             dateStr,
             sale.customerName || "Walk-in Patient",
             sale.customerPhone || "—",
+            item.drugCode || "—",
             item.genericName || "—",
             item.brandName || "—",
             item.strength || "—",
@@ -114,6 +130,7 @@ function transformSalesToExcelBuffer(sales) {
           dateStr,
           sale.customerName || "Walk-in Patient",
           sale.customerPhone || "—",
+          item.drugCode || "—",
           item.genericName || "—",
           item.brandName || "—",
           item.strength || "—",
@@ -160,7 +177,7 @@ function transformSalesToExcelBuffer(sales) {
 function transformPurchasesToExcelBuffer(purchases) {
   const wsData = [
     [
-      "Invoice No", "Invoice Date", "Supplier Name", "Supplier GSTIN",
+      "Invoice No", "Invoice Date", "Supplier Name", "Supplier GSTIN", "Drug Code",
       "Generic Name", "Brand Name", "Strength", "Form", "Batch Number", 
       "Expiry Date", "Quantity", "Purchase Price (Unit)", "MRP", "GST Rate %",
       "CGST Amount", "SGST Amount", "Taxable Amount", "Landed Total"
@@ -182,6 +199,7 @@ function transformPurchasesToExcelBuffer(purchases) {
         invoiceDateStr,
         invoice.supplierName || "—",
         invoice.supplierGstin || "—",
+        item.drugCode || "—",
         item.genericName || "—",
         item.brandName || "—",
         item.strength || "—",
@@ -229,7 +247,7 @@ function transformExpiryToExcelBuffer(items) {
 
   const wsData = [
     [
-      "Linked Supplier Name", "Generic Name", "Brand Name", "Strength", 
+      "Linked Supplier Name", "Drug Code", "Generic Name", "Brand Name", "Strength", 
       "Form", "Batch Number", "Expiry Date", "Days to Expiry",
       "Current Stock Qty", "Unit Purchase Price", "Stock Value (Landed Cost)"
     ]
@@ -238,6 +256,7 @@ function transformExpiryToExcelBuffer(items) {
   sortedItems.forEach(item => {
     wsData.push([
       item.supplierName || "No Vendor Linked",
+      item.drugCode || "—",
       item.genericName || "—",
       item.brandName || "—",
       item.strength || "—",
@@ -514,7 +533,8 @@ function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
 
       const name = item.brandName || item.genericName || "";
       const genericStr = item.genericName && item.genericName !== item.brandName ? ` (${item.genericName})` : "";
-      const desc = `${name}${genericStr}`;
+      const codePrefix = item.drugCode ? `[${item.drugCode}] ` : "";
+      const desc = `${codePrefix}${name}${genericStr}`;
 
       // Retrieve Batch Number and Expiry Date
       let batchNo = "—";
@@ -729,6 +749,217 @@ function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
       }
     };
 
+    pdfMake.createPdf(docDefinition).getBuffer((buffer) => {
+      callback(buffer);
+    });
+  } catch (err) {
+    errCallback(err);
+  }
+}
+
+function transformPmbiToExcelBuffer(payload) {
+  const wsData = [
+    [
+      "Drug Code", "Drug Name", "Company Name", "Batch Number", 
+      "Manufacturing Date", "Expiry Date", "MRP", "Purchase Rate", 
+      "Selling Rate", "GST Rate %", "Discount %", "Qty Purchased", 
+      "Qty Sold", "Current Stock", "Stock Value", "Supplier", 
+      "Invoice Number", "Purchase Date"
+    ]
+  ];
+  payload.forEach(item => {
+    wsData.push([
+      item.drugCode || "—",
+      item.genericName || "—",
+      item.companyName || "PMBI",
+      item.batchNumber || "—",
+      item.manufacturingDate || "—",
+      item.expiryDate || "—",
+      item.mrp || 0,
+      item.purchasePrice || 0,
+      item.sellingPrice || 0,
+      item.gstRate || 0,
+      item.discount || 0,
+      item.qtyPurchased || 0,
+      item.qtySold || 0,
+      item.stockQty || 0,
+      item.stockValue || 0,
+      item.supplierName || "—",
+      item.invoiceNumber || "—",
+      item.purchaseDate || "—"
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wscols = wsData[0].map((_, colIdx) => {
+    let maxLen = 0;
+    for (let r = 0; r < wsData.length; r++) {
+      const val = wsData[r][colIdx];
+      if (val !== undefined && val !== null) {
+        maxLen = Math.max(maxLen, String(val).length);
+      }
+    }
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 30) };
+  });
+  ws["!cols"] = wscols;
+  XLSX.utils.book_append_sheet(wb, ws, "PMBI Inventory Report");
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" });
+}
+
+function transformH1SalesToExcelBuffer(payload) {
+  const wsData = [
+    [
+      "Sale Date", "Bill Number", "Patient Name", "Patient Phone", 
+      "Doctor Name", "Prescription Number", "Drug Code", "Drug Name", 
+      "Batch Number", "Expiry Date", "Qty Sold", "Rate", "Total (₹)"
+    ]
+  ];
+  payload.forEach(item => {
+    wsData.push([
+      item.date || "—",
+      item.billNumber || "—",
+      item.customerName || "—",
+      item.customerPhone || "—",
+      item.doctorName || "—",
+      item.prescriptionNo || "—",
+      item.drugCode || "—",
+      item.brandName || item.genericName || "—",
+      item.batchNumber || "—",
+      item.expiryDate || "—",
+      item.qty || 0,
+      item.sellingPrice || 0,
+      item.total || 0
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wscols = wsData[0].map((_, colIdx) => {
+    let maxLen = 0;
+    for (let r = 0; r < wsData.length; r++) {
+      const val = wsData[r][colIdx];
+      if (val !== undefined && val !== null) {
+        maxLen = Math.max(maxLen, String(val).length);
+      }
+    }
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 30) };
+  });
+  ws["!cols"] = wscols;
+  XLSX.utils.book_append_sheet(wb, ws, "H1 Sales Register");
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" });
+}
+
+function transformH1PurchasesToExcelBuffer(payload) {
+  const wsData = [
+    [
+      "Purchase Date", "Invoice Number", "Supplier Name", "Supplier GSTIN", 
+      "Supplier Phone", "Drug Code", "Drug Name", "Batch Number", 
+      "Expiry Date", "Qty Purchased", "Purchase Rate", "Total (₹)"
+    ]
+  ];
+  payload.forEach(item => {
+    wsData.push([
+      item.date || "—",
+      item.invoiceNumber || "—",
+      item.supplierName || "—",
+      item.supplierGstin || "—",
+      item.supplierPhone || "—",
+      item.drugCode || "—",
+      item.brandName || item.genericName || "—",
+      item.batchNumber || "—",
+      item.expiryDate || "—",
+      item.qty || 0,
+      item.purchasePrice || 0,
+      item.total || 0
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wscols = wsData[0].map((_, colIdx) => {
+    let maxLen = 0;
+    for (let r = 0; r < wsData.length; r++) {
+      const val = wsData[r][colIdx];
+      if (val !== undefined && val !== null) {
+        maxLen = Math.max(maxLen, String(val).length);
+      }
+    }
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 30) };
+  });
+  ws["!cols"] = wscols;
+  XLSX.utils.book_append_sheet(wb, ws, "H1 Purchases Register");
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" });
+}
+
+function transformPmbiToPDFBuffer(payload, callback, errCallback) {
+  try {
+    const { items, storeInfo } = payload;
+    const stockValSum = items.reduce((a, s) => a + (s.stockValue || 0), 0);
+    const docDefinition = {
+      pageSize: "A4",
+      pageOrientation: "landscape",
+      pageMargins: [20, 20, 20, 30],
+      footer: function(currentPage, pageCount) {
+        return { text: `Page ${currentPage} of ${pageCount}`, alignment: 'center', fontSize: 8, color: '#8A96A3', margin: [0, 10, 0, 0] };
+      },
+      content: [
+        {
+          columns: [
+            { text: (storeInfo?.name || "JANAUSHADHI PHARMACY").toUpperCase(), fontSize: 12, bold: true, color: "#0A2342" },
+            { text: "PMBI MEDICINES INVENTORY REPORT", alignment: "right", fontSize: 10, bold: true, color: "#0D7377" }
+          ]
+        },
+        {
+          text: `Generated: ${new Date().toLocaleString("en-IN")} | Total Stock Value: ₹${stockValSum.toFixed(2)}`,
+          fontSize: 8,
+          margin: [0, 4, 0, 8]
+        },
+        { canvas: [{ type: "line", x1: 0, y1: 0, x2: 780, y2: 0, lineWidth: 1.0, strokeColor: "#0A2342" }], margin: [0, 0, 0, 10] },
+        {
+          table: {
+            headerRows: 1,
+            widths: ["8%", "18%", "8%", "8%", "8%", "7%", "7%", "5%", "6%", "6%", "7%", "12%"],
+            body: [
+              [
+                { text: "Code", style: "th" },
+                { text: "Drug Name", style: "th" },
+                { text: "Batch", style: "th" },
+                { text: "Expiry", style: "th" },
+                { text: "MRP", style: "th", alignment: "right" },
+                { text: "Pur. Rate", style: "th", alignment: "right" },
+                { text: "Sel. Rate", style: "th", alignment: "right" },
+                { text: "GST", style: "th", alignment: "center" },
+                { text: "Purch Qty", style: "th", alignment: "center" },
+                { text: "Sold Qty", style: "th", alignment: "center" },
+                { text: "Stock", style: "th", alignment: "center" },
+                { text: "Stock Val (₹)", style: "th", alignment: "right" }
+              ],
+              ...items.map(row => [
+                { text: row.drugCode || "—", fontSize: 7 },
+                { text: row.genericName || "—", fontSize: 7, bold: true },
+                { text: row.batchNumber || "—", fontSize: 7 },
+                { text: row.expiryDate || "—", fontSize: 7 },
+                { text: (row.mrp || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                { text: (row.purchasePrice || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                { text: (row.sellingPrice || 0).toFixed(2), fontSize: 7, alignment: "right" },
+                { text: `${row.gstRate || 0}%`, fontSize: 7, alignment: "center" },
+                { text: row.qtyPurchased || 0, fontSize: 7, alignment: "center" },
+                { text: row.qtySold || 0, fontSize: 7, alignment: "center" },
+                { text: row.stockQty || 0, fontSize: 7, alignment: "center", bold: true },
+                { text: (row.stockValue || 0).toFixed(2), fontSize: 7, alignment: "right", bold: true, color: "#1B7A4E" }
+              ])
+            ]
+          },
+          layout: {
+            hLineWidth: (i, node) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
+            vLineWidth: () => 0.5,
+            hLineColor: () => "#CBD5E0",
+            vLineColor: () => "#CBD5E0"
+          }
+        }
+      ],
+      styles: {
+        th: { bold: true, fontSize: 7.5, fillColor: "#F4F6F9" }
+      }
+    };
     pdfMake.createPdf(docDefinition).getBuffer((buffer) => {
       callback(buffer);
     });

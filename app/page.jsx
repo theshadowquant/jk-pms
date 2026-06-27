@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
+import PmbiPurchaseEntry from "@/components/PmbiPurchaseEntry";
+import PmbiOpeningStock from "@/components/PmbiOpeningStock";
+import PmbiReports from "@/components/PmbiReports";
+import H1DrugTracking from "@/components/H1DrugTracking";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
@@ -1786,10 +1790,15 @@ export default function PharmacyApp() {
       sgst: a.sgst + c.sgst,
     };
   }, { sub: 0, disc: 0, grand: 0, taxable: 0, gst: 0, cgst: 0, sgst: 0 });
-  const searchResults = billSearch.length >= 2
+  const searchResults = (billSearch.length >= 2 || (billSearch.length >= 1 && /^\d+$/.test(billSearch)))
     ? [
         ...medicines
-          .filter(m => m.genericName?.toLowerCase().includes(billSearch.toLowerCase()) || m.brandName?.toLowerCase().includes(billSearch.toLowerCase()))
+          .filter(m => 
+            (m.genericName || "").toLowerCase().includes(billSearch.toLowerCase()) || 
+            (m.brandName || "").toLowerCase().includes(billSearch.toLowerCase()) ||
+            String(m.drugCode || "").toLowerCase().includes(billSearch.toLowerCase()) ||
+            (m.barcode || "").toLowerCase().includes(billSearch.toLowerCase())
+          )
           .sort((a, b) => getExpiryDate(a) - getExpiryDate(b))
           .slice(0, 8),
         { isAddTempRow: true, genericName: `➕ Add & Sell "${billSearch}"`, brandName: "", isTemporary: true, id: "temp-row-trigger" }
@@ -1890,12 +1899,13 @@ export default function PharmacyApp() {
         if (!hasSupplierMed) return false;
       }
 
-      // Product Name query filter
+      // Product Name/Drug Code query filter
       if (reportFilters.productQuery) {
         const prodLower = reportFilters.productQuery.toLowerCase();
         const hasProd = (s.items || []).some(item => 
           item.brandName?.toLowerCase().includes(prodLower) ||
-          item.genericName?.toLowerCase().includes(prodLower)
+          item.genericName?.toLowerCase().includes(prodLower) ||
+          String(item.drugCode || "").toLowerCase().includes(prodLower)
         );
         if (!hasProd) return false;
       }
@@ -1920,7 +1930,8 @@ export default function PharmacyApp() {
         const hasMedMatch = (s.items || []).some(item => 
           item.brandName?.toLowerCase().includes(queryLower) ||
           item.genericName?.toLowerCase().includes(queryLower) ||
-          item.batchNumber?.toLowerCase().includes(queryLower)
+          item.batchNumber?.toLowerCase().includes(queryLower) ||
+          String(item.drugCode || "").toLowerCase().includes(queryLower)
         );
         if (!billNoMatch && !patientMatch && !doctorMatch && !hasMedMatch) return false;
       }
@@ -1987,12 +1998,13 @@ export default function PharmacyApp() {
         if (!hasMed) return false;
       }
 
-      // Product Name query filter
+      // Product Name/Drug Code query filter
       if (reportFilters.productQuery) {
         const prodLower = reportFilters.productQuery.toLowerCase();
         const hasProd = (p.items || []).some(item => 
           item.brandName?.toLowerCase().includes(prodLower) ||
-          item.genericName?.toLowerCase().includes(prodLower)
+          item.genericName?.toLowerCase().includes(prodLower) ||
+          String(item.drugCode || "").toLowerCase().includes(prodLower)
         );
         if (!hasProd) return false;
       }
@@ -2012,7 +2024,8 @@ export default function PharmacyApp() {
         const hasMedMatch = (p.items || []).some(item => 
           item.brandName?.toLowerCase().includes(queryLower) ||
           item.genericName?.toLowerCase().includes(queryLower) ||
-          item.batchNumber?.toLowerCase().includes(queryLower)
+          item.batchNumber?.toLowerCase().includes(queryLower) ||
+          String(item.drugCode || "").toLowerCase().includes(queryLower)
         );
         if (!invNoMatch && !supplierMatch && !hasMedMatch) return false;
       }
@@ -2420,11 +2433,14 @@ Schema:
     if (e.key === "Enter") {
       const trimmedSearch = billSearch.trim();
       
-      // 1. Exact barcode lookup in memory (essential for instant barcode scanners)
-      const exactBarcodeMatch = medicines.find(m => m.barcode === trimmedSearch);
-      if (exactBarcodeMatch) {
+      // 1. Exact barcode or drug code lookup in memory (essential for instant barcode scanners and numeric keypads)
+      const exactMatch = medicines.find(m => 
+        m.barcode === trimmedSearch || 
+        (m.drugCode && String(m.drugCode) === trimmedSearch)
+      );
+      if (exactMatch) {
         e.preventDefault();
-        addToBill(exactBarcodeMatch);
+        addToBill(exactMatch);
         return;
       }
 
@@ -2453,7 +2469,15 @@ Schema:
     if (!billItems.length) return;
     if (!storeId) { alert("Error: No store linked to user."); return; }
     
-    // Patient & Doctor details are optional
+    // H1 Compliance validation
+    const hasH1Drug = billItems.some(i => i.isH1Drug === true);
+    if (hasH1Drug) {
+      if (!customerName?.trim() || !customerPhone?.trim() || !doctorName?.trim() || !prescriptionNo?.trim()) {
+        playBeep(220, 0.15);
+        alert("⚠ H1 Compliance Warning: This transaction contains a Schedule H1 drug. Patient Name, Patient Phone, Doctor Name, and Prescription Number are mandatory for regulatory logging.");
+        return;
+      }
+    }
     
     // Validate quantities and selling prices strictly
     for (const item of billItems) {
@@ -4651,6 +4675,7 @@ Schema:
           list.push({
             brandName: m.brandName || "",
             genericName: m.genericName || "",
+            drugCode: m.drugCode || "",
             strength: m.strength || "",
             form: m.form || "Tablet",
             batchNumber: b.batchNumber || "",
@@ -6323,19 +6348,23 @@ Schema:
     { id: "dashboard", label: "Dashboard", icon: "📊" },
     { id: "billing",   label: "Billing / POS", icon: "🛒" },
     { id: "purchase",  label: "Purchases",  icon: "📦" },
+    { id: "pmbi-purchase", label: "PMBI Purchase", icon: "📦" },
+    { id: "pmbi-opening-stock", label: "PMBI Opening Stock", icon: "➕" },
     { id: "vendors",   label: "Vendors & Dues", icon: "👥" },
     { id: "reorders",  label: "Reorder Hub", icon: "🔄" },
     { id: "inventory", label: "Inventory", icon: "💊" },
     { id: "bills",     label: "Bills History", icon: "🧾" },
     { id: "reports",   label: "GST & Reports", icon: "📈" },
+    { id: "pmbi-reports", label: "PMBI Reports", icon: "📊" },
+    { id: "h1-tracking", label: "H1 Compliance", icon: "🛡️" },
     { id: "alerts",    label: `Alerts (${lowStock.length})`, icon: "⏰" },
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
-  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "reorders", "vendors", "inventory", "alerts"].includes(t.id));
+  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts"].includes(t.id));
 
   // Enforce staff restrictions dynamically
-  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "reorders", "vendors", "inventory", "alerts"].includes(activeTab)) {
+  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts"].includes(activeTab)) {
     setActiveTab("billing");
   }
 
@@ -7407,7 +7436,9 @@ Schema:
                                 {/* Row 1: Name + status badges */}
                                 <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
                                   <span style={{ fontWeight: 600, color: C.navy, fontSize: 12 }}>{m.genericName}</span>
-                                  <span style={{ color: C.text3, fontSize: 11 }}>{m.brandName}</span>
+                                  {m.brandName && m.brandName !== m.genericName && <span style={{ color: C.text3, fontSize: 11 }}>{m.brandName}</span>}
+                                  {m.category === "PMBI" && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: C.teal, borderRadius: 4, padding: "1px 4px", marginLeft: 4 }}>PMBI</span>}
+                                  {m.isH1Drug && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 4, padding: "1px 4px", marginLeft: 4 }}>H1</span>}
                                   {expired && <span style={{ fontSize: 9, fontWeight: 700, color: C.red, background: "#FDECEA", borderRadius: 4, padding: "1px 4px" }}>EXPIRED</span>}
                                   {!expired && expiring && <span style={{ fontSize: 9, fontWeight: 700, color: C.amber, background: "#FEF3DC", borderRadius: 4, padding: "1px 4px" }}>Expiring Soon</span>}
                                 </div>
@@ -7607,10 +7638,14 @@ Schema:
                         return (
                           <tr key={`${item.id}-${item.selectedBatchNumber}-${idx}`} style={{ borderBottom: `1px solid ${C.border}`, background: expired ? "#FFF5F5" : expiring ? "#FFFDF0" : "" }}>
                             <td style={{ ...S.td, fontSize: 12, padding: "8px 12px", fontWeight: 700 }}>{idx + 1}</td>
-                            <td style={{ ...S.td, fontSize: 11, color: C.text3 }}>{item.barcode || "GEN-REG"}</td>
+                            <td style={{ ...S.td, fontSize: 11, color: C.text3 }}>{item.drugCode || item.barcode || "GEN-REG"}</td>
                             <td style={{ ...S.td, fontSize: 12, padding: "8px 12px" }}>
-                              <div style={{ fontWeight: 700, color: C.navy }}>{item.genericName}</div>
-                              {item.brandName && <div style={{ fontSize: 10, color: C.text3, marginTop: 1 }}>{item.brandName}</div>}
+                              <div style={{ fontWeight: 700, color: C.navy, display: "flex", alignItems: "center", gap: 4 }}>
+                                {item.genericName}
+                                {item.category === "PMBI" && <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: C.teal, borderRadius: 4, padding: "1px 3px" }}>PMBI</span>}
+                                {item.isH1Drug && <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 4, padding: "1px 3px" }}>H1</span>}
+                              </div>
+                              {item.brandName && item.brandName !== item.genericName && <div style={{ fontSize: 10, color: C.text3, marginTop: 1 }}>{item.brandName}</div>}
                               {item.isTemporary && <span style={{ ...S.badge("amber"), fontSize: 8, padding: "0px 4px" }}>UNMAPPED</span>}
                             </td>
                             <td style={{ ...S.td, fontSize: 12 }}>{item.form || "Tab"}</td>
@@ -9011,6 +9046,7 @@ Schema:
               {[
                 ["sales", "Sales Report", "📈"],
                 ["purchase", "Purchase Report", "📦"],
+                ["stock", "Stock Transaction Register", "🔄"],
                 ["gst", "GST Compliance & Ledger", "⚖️"],
                 ["adc", "ADC Inspection Register", "🛡️"]
               ].map(([id, label, icon]) => {
@@ -9642,7 +9678,7 @@ Schema:
                   }
                   if (reportFilters.productQuery) {
                     const q = reportFilters.productQuery.toLowerCase();
-                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q)) return;
+                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q) && !String(item.drugCode || "").toLowerCase().includes(q)) return;
                   }
                   // batch filter
                   if (reportFilters.batchNo) {
@@ -9659,6 +9695,7 @@ Schema:
                     party: p.supplierName || "—",
                     name: item.brandName || item.genericName || "—",
                     genericName: item.genericName || "",
+                    drugCode: item.drugCode || "",
                     batch: item.batchNumber || "—",
                     expiry: item.expiryDate || "—",
                     qty: item.qty || item.quantity || 0,
@@ -9678,7 +9715,7 @@ Schema:
                   if (reportFilters.medicineId && item.medicineId !== reportFilters.medicineId) return;
                   if (reportFilters.productQuery) {
                     const q = reportFilters.productQuery.toLowerCase();
-                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q)) return;
+                    if (!item.brandName?.toLowerCase().includes(q) && !item.genericName?.toLowerCase().includes(q) && !String(item.drugCode || "").toLowerCase().includes(q)) return;
                   }
                   if (reportFilters.batchNo) {
                     const batchLow = reportFilters.batchNo.toLowerCase();
@@ -9696,6 +9733,7 @@ Schema:
                     party: s.customerName || "Walk-in Patient",
                     name: item.brandName || item.genericName || "—",
                     genericName: item.genericName || "",
+                    drugCode: item.drugCode || "",
                     batch: batchLabel,
                     expiry: item.expiryDate || (item.batchesUsed?.[0]?.expiryDate) || "—",
                     qty: item.quantity || item.qty || 0,
@@ -9816,7 +9854,10 @@ Schema:
                                 <td style={{ ...S.td, fontWeight: 600, color: C.navy }}>{row.refNo}</td>
                                 <td style={S.td}>{row.party}</td>
                                 <td style={S.td}>
-                                  <div style={{ fontWeight: 600, color: C.navy }}>{row.name}</div>
+                                  <div style={{ fontWeight: 600, color: C.navy }}>
+                                    {row.name}
+                                    {row.drugCode && <span style={{ color: C.teal, fontSize: 10, marginLeft: 6, fontWeight: 700 }}>[Code: {row.drugCode}]</span>}
+                                  </div>
                                   {row.genericName && row.genericName !== row.name && <div style={{ fontSize: 10, color: C.text3, fontStyle: "italic" }}>{row.genericName}</div>}
                                 </td>
                                 <td style={{ ...S.td, fontFamily: "monospace", fontWeight: 700 }}>{row.batch}</td>
@@ -10969,6 +11010,62 @@ Schema:
           </div>
         </div>
       )}
+
+        {/* PMBI PURCHASE ENTRY */}
+        {!dbLoading && activeTab === "pmbi-purchase" && (
+          <PmbiPurchaseEntry
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            medicines={medicines}
+            suppliers={suppliers}
+          />
+        )}
+
+        {/* PMBI OPENING STOCK */}
+        {!dbLoading && activeTab === "pmbi-opening-stock" && (
+          <PmbiOpeningStock
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            medicines={medicines}
+          />
+        )}
+
+        {/* PMBI REPORTS */}
+        {!dbLoading && activeTab === "pmbi-reports" && (
+          <PmbiReports
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            medicines={medicines}
+            purchases={purchases}
+            sales={sales}
+            suppliers={suppliers}
+            runWorkerExport={runWorkerExport}
+            isWorkerExporting={isWorkerExporting}
+            storeDetails={storeDetails}
+          />
+        )}
+
+        {/* H1 DRUG TRACKING */}
+        {!dbLoading && activeTab === "h1-tracking" && (
+          <H1DrugTracking
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            medicines={medicines}
+            purchases={purchases}
+            sales={sales}
+            suppliers={suppliers}
+            runWorkerExport={runWorkerExport}
+            isWorkerExporting={isWorkerExporting}
+          />
+        )}
 
       {openingStockModal && (
         <div style={{
@@ -12426,7 +12523,10 @@ Schema:
                       return (
                         <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                           <td style={S.td}>
-                            <div style={{ fontWeight: 600, color: C.navy }}>{item.brandName || item.genericName}</div>
+                            <div style={{ fontWeight: 600, color: C.navy }}>
+                              {item.brandName || item.genericName}
+                              {item.drugCode && <span style={{ color: C.teal, fontSize: 10, marginLeft: 6, fontWeight: 700 }}>[Code: {item.drugCode}]</span>}
+                            </div>
                             <div style={{ fontSize: 11, color: C.text3 }}>{item.genericName}</div>
                           </td>
                           <td style={{ ...S.td, textAlign: "center", fontFamily: "monospace" }}>{batchNo}</td>

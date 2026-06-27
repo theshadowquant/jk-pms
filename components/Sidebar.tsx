@@ -110,6 +110,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Discount Master", id: "discount-master", icon: Minus, action: "toast" },
       { label: "Other Master", id: "other-master", icon: Wrench, action: "toast" },
       { label: "Opening Balance", id: "opening-balance", icon: Plus, action: "modal", modalType: "openingStock" },
+      { label: "PMBI Opening Stock", id: "pmbi-opening-stock", icon: Plus, action: "navigate", target: "/pmbi-opening-stock" },
     ],
   },
   {
@@ -131,6 +132,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Truck,
     items: [
       { label: "Bill", id: "purchase-bill", icon: Receipt, action: "navigate", target: "/purchase" },
+      { label: "PMBI Purchase Entry", id: "pmbi-purchase", icon: Receipt, action: "navigate", target: "/pmbi-purchase" },
       { label: "Challan", id: "purchase-challan", icon: ClipboardList, action: "navigate", target: "/purchase" },
       { label: "Stock Receive", id: "stock-receive", icon: Boxes, action: "navigate", target: "/purchase" },
       { label: "Order", id: "purchase-order", icon: BookOpen, action: "navigate", target: "/reorders" },
@@ -180,6 +182,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Inventory Report", id: "inventory-report", icon: Package, action: "navigate", target: "/reports" },
       { label: "Statutory Report", id: "statutory-report", icon: Shield, action: "navigate", target: "/reports" },
       { label: "Management Report", id: "management-report", icon: TrendingUp, action: "navigate", target: "/reports" },
+      { label: "PMBI Reports", id: "pmbi-reports", icon: BarChart3, action: "navigate", target: "/pmbi-reports" },
+      { label: "H1 Drug Register", id: "h1-tracking", icon: ClipboardList, action: "navigate", target: "/h1-tracking" },
     ],
   },
   {
