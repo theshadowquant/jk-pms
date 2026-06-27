@@ -226,9 +226,7 @@ async function printThermalReceipt(bill, storeDetails) {
     .row{display:flex;justify-content:space-between;margin:2px 0}
     pre{font-family:inherit;font-size:9px;white-space:pre-wrap}
   </style></head><body>
-    <div class="c b" style="font-size:11px">${sName.toUpperCase()}</div>
-    <div class="c" style="font-size:9px">${sAddr} · Ph: ${sPhone}</div>
-    ${sGst ? `<div class="c" style="font-size:8px">GSTIN: ${sGst} · DL: ${sDl}</div>` : `<div class="c" style="font-size:9px">Pradhan Mantri Bhartiya Janaushadhi Pariyojana</div>`}
+    <div class="c b" style="font-size:11px">JANAUSHADHI KENDRA</div>
     <div class="dline"></div>
     <div class="row"><span>Bill:</span><span class="b">${bill.billNumber || ""}</span></div>
     <div class="row"><span>Date:</span><span>${dateStr}</span></div>
@@ -9228,137 +9226,7 @@ Schema:
               </div>
             </div>
 
-            {/* IMPORT LEGACY SALES DATA PANEL */}
-            <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, paddingBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "0.5px" }}>📥 IMPORT LEGACY SALES LEDGER</div>
-                <button style={{ ...S.btn("outline"), padding: "6px 12px", fontSize: 11 }} onClick={downloadSalesTemplate}>
-                  📥 Download CSV Template
-                </button>
-              </div>
-              <p style={{ fontSize: 12, color: C.text2, lineHeight: 1.5 }}>
-                Upload a historical sales spreadsheet (.csv or .xlsx) from legacy software (Marg, Tally, Vyapar).
-                Missing medicines are auto-created in the inventory catalog, and stock counts are adjusted automatically to execute compliant billing.
-              </p>
-              
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <input
-                  type="file"
-                  accept=".csv, .xlsx"
-                  style={{ display: "none" }}
-                  id="sales-excel-import-input"
-                  onChange={handleSalesExcelImport}
-                />
-                <button
-                  style={S.btn("teal")}
-                  onClick={() => document.getElementById("sales-excel-import-input").click()}
-                  disabled={isImporting}
-                >
-                  📂 Select & Ingest Sales File
-                </button>
-                
-                {isImporting && (
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, color: C.teal, marginBottom: 4 }}>
-                      <span>Ingesting Bills: {importProgress}%</span>
-                      <span>Please keep cashier tab active</span>
-                    </div>
-                    <div style={{ width: "100%", height: 6, background: "#E2E8F0", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ width: `${importProgress}%`, height: "100%", background: C.teal, borderRadius: 3, transition: "width 0.1s" }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {/* SALES IMPORT HISTORY PANEL */}
-            {true && (
-              <div style={{ ...S.card, marginBottom: 20 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, letterSpacing: "0.5px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>📋 Sales Import History</span>
-                  <span style={{ fontSize: 11, color: C.text3, fontWeight: 400 }}>{salesImportSessions.length} session{salesImportSessions.length !== 1 ? "s" : ""}</span>
-                </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ background: "#F8FAFC" }}>
-                        {["Import Date", "Bills Count", "Bill Nos", "Est. Revenue", "Status", "Action"].map(h => (
-                          <th key={h} style={S.th}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {salesImportSessions.length === 0 ? (
-                        <tr>
-                          <td colSpan="6" style={{ ...S.td, textAlign: "center", color: C.text3, padding: "24px 0", fontStyle: "italic" }}>
-                            No past imports recorded. Upload a spreadsheet above to ingest sales ledger history.
-                          </td>
-                        </tr>
-                      ) : (
-                        salesImportSessions.map(session => {
-                          const dateStr = session.createdAt?.toDate
-                            ? session.createdAt.toDate().toLocaleString("en-IN")
-                            : new Date(session.createdAt || 0).toLocaleString("en-IN");
-                          const billNosPreview = Array.isArray(session.billNumbers)
-                            ? (session.billNumbers.length <= 3
-                              ? session.billNumbers.join(", ")
-                              : `${session.billNumbers.slice(0, 3).join(", ")} +${session.billNumbers.length - 3} more`)
-                            : "—";
-                          const statusColor = session.status === "COMPLETED" ? C.green
-                            : session.status === "DELETED" ? C.red : C.text3;
-                          const statusBg = session.status === "COMPLETED" ? "#E8F5EE"
-                            : session.status === "DELETED" ? "#FDECEA" : "#F1F5F9";
-                          return (
-                            <tr key={session.id}>
-                              <td style={S.td}>{dateStr}</td>
-                              <td style={S.td}>
-                                <span style={S.badge("blue")}>{session.totalBills} bills</span>
-                              </td>
-                              <td style={{ ...S.td, fontSize: 11, color: C.text2, maxWidth: 200 }}>
-                                {billNosPreview}
-                              </td>
-                              <td style={{ ...S.td, fontWeight: 700, color: C.green }}>
-                                ₹{(session.totalRevenue || 0).toFixed(2)}
-                              </td>
-                              <td style={S.td}>
-                                <span style={{ ...S.badge("teal"), background: statusBg, color: statusColor }}>
-                                  {session.status}
-                                </span>
-                              </td>
-                              <td style={S.td}>
-                                {session.status !== "DELETED" && (
-                                  <div style={{ display: "flex", gap: 8 }}>
-                                    <button
-                                      onClick={() => loadSalesImportSessionForEditing(session)}
-                                      style={{ ...S.btn("outline"), padding: "4px 10px", fontSize: 11, borderColor: C.blue, color: C.blue }}
-                                      onMouseEnter={e => { e.currentTarget.style.background = "#EBF4FF"; }}
-                                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
-                                    >
-                                      ✏️ Edit Import
-                                    </button>
-                                    <button
-                                      onClick={() => deleteSalesImportSession(session)}
-                                      style={{ ...S.btn("outline"), padding: "4px 10px", fontSize: 11, borderColor: C.red, color: C.red }}
-                                      onMouseEnter={e => { e.currentTarget.style.background = "#FFF5F5"; }}
-                                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
-                                    >
-                                      🗑️ Delete Import
-                                    </button>
-                                  </div>
-                                )}
-                                {session.status === "DELETED" && (
-                                  <span style={{ fontSize: 11, color: C.text3, fontStyle: "italic" }}>Deleted</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             {/* WEB WORKER PROGRESS INDICATOR */}
             {isWorkerExporting && (
