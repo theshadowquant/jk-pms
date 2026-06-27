@@ -739,7 +739,7 @@ export default function PharmacyApp() {
     }
   }, [sales, activeInvoiceNo]);
 
-  const handleNewInvoice = () => {
+  const handleNewInvoice = (nextInvoiceNo = null) => {
     setBillItems([]);
     setCustomerName("");
     setCustomerPhone("");
@@ -774,9 +774,13 @@ export default function PharmacyApp() {
     setSplitWalletPay("0.00");
 
     // Generate fresh invoice number
-    const yr = new Date().getFullYear();
-    const nextSeq = String(sales.length + 1).padStart(6, "0");
-    setActiveInvoiceNo(`SI${yr}${nextSeq}`);
+    if (nextInvoiceNo) {
+      setActiveInvoiceNo(nextInvoiceNo);
+    } else {
+      const yr = new Date().getFullYear();
+      const nextSeq = String(sales.length + 1).padStart(6, "0");
+      setActiveInvoiceNo(`SI${yr}${nextSeq}`);
+    }
 
     playBeep(1000, 0.04);
   };
@@ -2753,7 +2757,18 @@ Schema:
       });
 
       playBeep(880, 0.08); // high pitch success beep
-      handleNewInvoice();
+      
+      let nextInvoiceNo = null;
+      if (activeInvoiceNo && activeInvoiceNo.startsWith("SI")) {
+        const yr = new Date().getFullYear();
+        const seqStr = activeInvoiceNo.substring(6);
+        const seqNum = parseInt(seqStr, 10);
+        if (!isNaN(seqNum)) {
+          nextInvoiceNo = `SI${yr}${String(seqNum + 1).padStart(6, "0")}`;
+        }
+      }
+      
+      handleNewInvoice(nextInvoiceNo);
       setShowBillSuccessModal(true);
     } catch (err) {
       playBeep(220, 0.15); // low pitch warn beep
