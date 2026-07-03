@@ -7,6 +7,7 @@ import PmbiOpeningStock from "@/components/PmbiOpeningStock";
 import PmbiReports from "@/components/PmbiReports";
 import H1DrugTracking from "@/components/H1DrugTracking";
 import StockInventoryReport from "@/components/StockInventoryReport";
+import Analytics from "@/components/Analytics";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
@@ -6391,6 +6392,7 @@ Schema:
     { id: "pmbi-reports", label: "PMBI Reports", icon: "📊" },
     { id: "h1-tracking", label: "H1 Compliance", icon: "🛡️" },
     { id: "alerts",    label: `Alerts (${lowStock.length})`, icon: "⏰" },
+    { id: "analytics", label: "Analytics", icon: "📊" },
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
@@ -10467,6 +10469,11 @@ Schema:
               )}
             </div>
           </div>
+        )}
+
+        {/* ANALYTICS */}
+        {!dbLoading && activeTab === "analytics" && (
+          <Analytics sales={sales} purchases={purchases} medicines={medicines} />
         )}
 
         {/* STORE SETTINGS */}

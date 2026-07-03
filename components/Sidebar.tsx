@@ -181,7 +181,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Accounts Report", id: "accounts-report", icon: FileText, action: "navigate", target: "/reports" },
       { label: "Inventory Report", id: "inventory-report", icon: Package, action: "navigate", target: "/reports" },
       { label: "Statutory Report", id: "statutory-report", icon: Shield, action: "navigate", target: "/reports" },
-      { label: "Management Report", id: "management-report", icon: TrendingUp, action: "navigate", target: "/reports" },
+      { label: "Management Report", id: "management-report", icon: TrendingUp, action: "navigate", target: "/analytics" },
       { label: "PMBI Reports", id: "pmbi-reports", icon: BarChart3, action: "navigate", target: "/pmbi-reports" },
       { label: "H1 Drug Register", id: "h1-tracking", icon: ClipboardList, action: "navigate", target: "/h1-tracking" },
     ],
@@ -319,6 +319,7 @@ export default function Sidebar({
     if (["vendors"].includes(tab)) return "master";
     if (["inventory"].includes(tab)) return "master";
     if (["reports"].includes(tab)) return "report";
+    if (["analytics"].includes(tab)) return "report";
     if (["settings"].includes(tab)) return "utilities";
     if (["bills"].includes(tab)) return "accounting";
     return null;
