@@ -138,6 +138,50 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
             igstRate: headers.findIndex(h => h.includes("igst")),
           };
 
+          // Helper: parse expiry/mfg date from any format (including Excel serial numbers)
+          const parsePmbiExpiry = (val: any, fallback: string): string => {
+            if (val === null || val === undefined || val === "") return fallback;
+            // Excel numeric date serial (e.g. 46388)
+            if (typeof val === "number" && val > 1000) {
+              const d = new Date((val - 25569) * 86400 * 1000);
+              if (!isNaN(d.getTime())) {
+                return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+              }
+            }
+            const raw = String(val).trim();
+            // Already YYYY-MM
+            if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+            // MM/YY or MM/YYYY or MM-YY or MM.YYYY
+            const m1 = raw.match(/^(\d{1,2})[\/\.\-](\d{2,4})$/);
+            if (m1) {
+              const month = m1[1].padStart(2, "0");
+              let year = m1[2].length === 2 ? "20" + m1[2] : m1[2];
+              if (parseInt(month) >= 1 && parseInt(month) <= 12) return `${year}-${month}`;
+            }
+            // YYYY/MM
+            const m2 = raw.match(/^(\d{4})[\/\.\-](\d{1,2})$/);
+            if (m2) {
+              const month = m2[2].padStart(2, "0");
+              if (parseInt(month) >= 1 && parseInt(month) <= 12) return `${m2[1]}-${month}`;
+            }
+            // MMM-YY or MMM/YYYY (e.g. Dec-26, Apr-2027)
+            const monthMap: Record<string, string> = { jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12" };
+            const m3 = raw.match(/^([A-Za-z]{3})[\/-](\d{2,4})$/);
+            if (m3) {
+              const mNum = monthMap[m3[1].toLowerCase()];
+              if (mNum) {
+                const year = m3[2].length === 2 ? "20" + m3[2] : m3[2];
+                return `${year}-${mNum}`;
+              }
+            }
+            // JS date parse last resort
+            const d2 = new Date(raw);
+            if (!isNaN(d2.getTime())) {
+              return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}`;
+            }
+            return fallback;
+          };
+
           const itemsList: any[] = [];
           rows.forEach((row, ri) => {
             if (!row || row.length === 0 || !row[idxMap.batchNumber || 0]) return;
@@ -176,8 +220,14 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               brandName: rawName || mVal.genericName || "Imported Item",
               companyName: mVal.companyName || "PMBI",
               batchNumber: String(row[idxMap.batchNumber] || "").toUpperCase().trim(),
-              manufacturingDate: idxMap.manufacturingDate !== -1 ? String(row[idxMap.manufacturingDate] || "").trim() : new Date().toISOString().substring(0, 7),
-              expiryDate: idxMap.expiryDate !== -1 ? String(row[idxMap.expiryDate] || "").trim() : "2028-12",
+              manufacturingDate: parsePmbiExpiry(
+                idxMap.manufacturingDate !== -1 ? row[idxMap.manufacturingDate] : null,
+                new Date().toISOString().substring(0, 7)
+              ),
+              expiryDate: parsePmbiExpiry(
+                idxMap.expiryDate !== -1 ? row[idxMap.expiryDate] : null,
+                "2028-12"
+              ),
               mrp: isNaN(mrpVal) ? 0 : mrpVal,
               purchasePrice: isNaN(purVal) ? 0 : purVal,
               sellingPrice: parseFloat(mVal.sellingPrice) || mrpVal,

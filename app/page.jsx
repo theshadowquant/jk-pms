@@ -2027,54 +2027,73 @@ export default function PharmacyApp() {
         const hasMedMatch = (p.items || []).some(item => 
           item.brandName?.toLowerCase().includes(queryLower) ||
           item.genericName?.toLowerCase().includes(queryLower) ||
-          item.batchNumber?.toLowerCase().includes(queryLower) ||
-          String(item.drugCode || "").toLowerCase().includes(queryLower)
+          item.batchNumber?.toLowerCase().includes(queryLower)
         );
         if (!invNoMatch && !supplierMatch && !hasMedMatch) return false;
       }
-      
       return true;
     });
   };
 
-  // ── EXCEL PARSING & INVOICE FLOWS ─────────
   const parseExpiry = (exp) => {
-    if (!exp) return "";
-    const str = String(exp).trim().replace(/[\/\.-]/g, "/");
+    if (exp === null || exp === undefined || exp === "") return "";
+
+    // Handle Excel numeric date serial (e.g. 46388 → date object)
+    if (typeof exp === "number" && exp > 1000) {
+      const excelDate = new Date((exp - 25569) * 86400 * 1000);
+      if (!isNaN(excelDate.getTime())) {
+        const year = excelDate.getUTCFullYear();
+        const month = String(excelDate.getUTCMonth() + 1).padStart(2, "0");
+        return `${year}-${month}`;
+      }
+    }
+
+    const raw = String(exp).trim();
+
+    // Already in YYYY-MM format
+    if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+
+    // Normalize separators for pattern matching (replace / . with /)
+    const str = raw.replace(/[\/\.-]/g, "/");
 
     // Pattern Match: MM/YY or MM/YYYY (e.g. 12/26 or 12/2026)
-    const monthYearPattern = /^(\d{1,2})\/(\d{2,4})$/;
-    const match = str.match(monthYearPattern);
-    if (match) {
-      let month = match[1].padStart(2, "0");
-      let year = match[2];
+    const monthYearMatch = str.match(/^(\d{1,2})\/(\d{2,4})$/);
+    if (monthYearMatch) {
+      let month = monthYearMatch[1].padStart(2, "0");
+      let year = monthYearMatch[2];
       if (year.length === 2) year = "20" + year;
       const mVal = parseInt(month);
       if (mVal >= 1 && mVal <= 12) return `${year}-${month}`;
     }
 
     // Pattern Match: YYYY/MM (e.g. 2026/12)
-    const yearMonthPattern = /^(\d{4})\/(\d{1,2})$/;
-    const ymMatch = str.match(yearMonthPattern);
-    if (ymMatch) {
-      const year = ymMatch[1];
-      const month = ymMatch[2].padStart(2, "0");
+    const yearMonthMatch = str.match(/^(\d{4})\/(\d{1,2})$/);
+    if (yearMonthMatch) {
+      const year = yearMonthMatch[1];
+      const month = yearMonthMatch[2].padStart(2, "0");
       const mVal = parseInt(month);
       if (mVal >= 1 && mVal <= 12) return `${year}-${month}`;
     }
 
-    // Pattern Match: Date String formats like "Dec-26" or "December-2026"
-    const dateObj = new Date(str);
+    // Pattern Match: MMM-YY or MMM-YYYY (e.g. Dec-26, Apr-2027)
+    const monthNames = { jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12" };
+    const monthNameMatch = raw.match(/^([A-Za-z]{3})[\/\-](\d{2,4})$/);
+    if (monthNameMatch) {
+      const mName = monthNameMatch[1].toLowerCase();
+      const mNum = monthNames[mName];
+      if (mNum) {
+        let year = monthNameMatch[2];
+        if (year.length === 2) year = "20" + year;
+        return `${year}-${mNum}`;
+      }
+    }
+
+    // Try generic JS date parse as last resort (e.g. "December 2026", "2026-12-31")
+    const dateObj = new Date(raw);
     if (!isNaN(dateObj.getTime())) {
       const year = dateObj.getFullYear();
       const month = String(dateObj.getMonth() + 1).padStart(2, "0");
       return `${year}-${month}`;
-    }
-
-    // fallback for standard YYYY-MM
-    const standardPattern = /^(\d{4})-(\d{2})$/;
-    if (standardPattern.test(str)) {
-      return str;
     }
 
     return "";
