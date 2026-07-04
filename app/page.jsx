@@ -734,9 +734,25 @@ export default function PharmacyApp() {
 
   // Generate active invoice number on sales update
   useEffect(() => {
-    if (!activeInvoiceNo && sales.length >= 0) {
+    if (!activeInvoiceNo) {
       const yr = new Date().getFullYear();
-      const nextSeq = String(sales.length + 1).padStart(6, "0");
+      let maxSeq = 0;
+      sales.forEach(s => {
+        if (s.billNumber && s.billNumber.startsWith(`SI${yr}`)) {
+          const seqStr = s.billNumber.substring(6);
+          const seqNum = parseInt(seqStr, 10);
+          if (!isNaN(seqNum) && seqNum > maxSeq) {
+            maxSeq = seqNum;
+          }
+        } else if (s.billNumber && s.billNumber.startsWith("SI")) {
+          const seqStr = s.billNumber.substring(6);
+          const seqNum = parseInt(seqStr, 10);
+          if (!isNaN(seqNum) && seqNum > maxSeq) {
+            maxSeq = seqNum;
+          }
+        }
+      });
+      const nextSeq = String(maxSeq + 1).padStart(6, "0");
       setActiveInvoiceNo(`SI${yr}${nextSeq}`);
     }
   }, [sales, activeInvoiceNo]);
@@ -779,9 +795,7 @@ export default function PharmacyApp() {
     if (nextInvoiceNo) {
       setActiveInvoiceNo(nextInvoiceNo);
     } else {
-      const yr = new Date().getFullYear();
-      const nextSeq = String(sales.length + 1).padStart(6, "0");
-      setActiveInvoiceNo(`SI${yr}${nextSeq}`);
+      setActiveInvoiceNo(""); // Triggers the useEffect to recalculate from the database
     }
 
     playBeep(1000, 0.04);
@@ -6396,10 +6410,10 @@ Schema:
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
-  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts"].includes(t.id));
+  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
 
   // Enforce staff restrictions dynamically
-  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts"].includes(activeTab)) {
+  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
     setActiveTab("billing");
   }
 
