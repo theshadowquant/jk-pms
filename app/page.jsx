@@ -6721,167 +6721,26 @@ Schema:
         {!dbLoading && activeTab === "dashboard" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
             
-            {/* ── PMBI Horizontal Navigation Masters Menu ── */}
-            <div style={{ background: "#ffffff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 20px" }}>
-              <div style={{ display: "flex", gap: 8, borderBottom: `1.5px solid ${C.border}`, paddingBottom: 8, overflowX: "auto" }}>
-                {[
-                  { id: "master", label: "Master", icon: "🔑" },
-                  { id: "configuration", label: "Configuration", icon: "⚙️" },
-                  { id: "sales", label: "Sales Master", icon: "🛒" },
-                  { id: "purchase", label: "Purchase Master", icon: "📦" },
-                  { id: "inventory", label: "Inventory Master", icon: "💊" },
-                  { id: "account", label: "Account Master", icon: "🧾" },
-                  { id: "synchronization", label: "Synchronization", icon: "🔄" }
-                ].map(menu => (
-                  <button 
-                    key={menu.id} 
-                    className={`top-menu-btn ${activeTopTab === menu.id ? "active" : ""}`}
-                    onClick={() => setActiveTopTab(menu.id)}
-                  >
-                    <span style={{ marginRight: 6 }}>{menu.icon}</span>
-                    {menu.label}
-                  </button>
-                ))}
-              </div>
-              
-              {/* Sub-menu Row depending on activeTopTab */}
-              <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
-                {activeTopTab === "master" && (
-                  <>
-                    <button className="master-icon-btn" onClick={() => setStoreInfoMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>🏪</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Store Info</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setLocationMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>📍</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Location Master</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setCategoryMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>🗂️</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Category Master</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setUomMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>⚖️</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>UOM Master</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setDoctorMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>🩺</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Doctor Master</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => alert("PMBJP Store Master: Displaying connected stores database: Active Store Code " + storeCode)}>
-                      <span style={{ fontSize: 18 }}>📋</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Store Master</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setEmailConfigOpen(true)}>
-                      <span style={{ fontSize: 18 }}>📧</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Email Config</span>
-                    </button>
-                    <button className="master-icon-btn" onClick={() => setRegionMasterOpen(true)}>
-                      <span style={{ fontSize: 18 }}>🌐</span>
-                      <span style={{ fontSize: 11, fontWeight: 700 }}>Area Master</span>
-                    </button>
-                  </>
-                )}
-                {activeTopTab === "configuration" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal2 }} onClick={() => setActiveTab("settings")}>⚙️ System Configurations</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => setActiveTab("settings")}>📄 Invoice Receipt Slabs</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.green }} onClick={() => alert("Calculations Auto-sync safe mode is verified.")}>🛡️ POS Validation Rules</span>
-                  </div>
-                )}
-                {activeTopTab === "sales" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal }} onClick={() => setActiveTab("billing")}>🛒 Open POS Invoice Billing</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => setActiveTab("bills")}>🧾 View Bills History Log</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.green }} onClick={() => setShowTopSellingModal(true)}>🥇 View Top 50 Selling Products</span>
-                  </div>
-                )}
-                {activeTopTab === "purchase" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal }} onClick={() => { setActiveTab("purchase"); setShowPurchaseForm(true); }}>📦 Record Purchase Invoice</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => setActiveTab("reorders")}>🔄 Smart Reorder PO Suggestions</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.green }} onClick={() => setShowRecordPaymentModal(true)}>📝 Supplier Payment Vouchers</span>
-                  </div>
-                )}
-                {activeTopTab === "inventory" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal }} onClick={() => setActiveTab("inventory")}>💊 Inventory & Batch Quantities</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => setActiveTab("alerts")}>⏰ View Low Stock Alert Items</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.amber }} onClick={() => setShowNearbyExpiryModal(true)}>⚠️ Batch Near Expiry Audit</span>
-                  </div>
-                )}
-                {activeTopTab === "account" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal }} onClick={() => setShowPendingPaymentsModal(true)}>💸 Supplier Dues Log</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => setActiveTab("vendors")}>👥 Vendors & Ledgers Directory</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.green }} onClick={() => alert("Active Incentive: ₹" + (storeDetails?.incentiveReceived || "1,14,041.00"))}>💰 PMS Incentive Log</span>
-                  </div>
-                )}
-                {activeTopTab === "synchronization" && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "#F8FAFC", borderRadius: 8, width: "100%", display: "flex", gap: 14 }}>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.teal }} onClick={() => alert("Sync is fully active. System synced with Firebase Firestore!")}>🔄 Sync Frequency: Realtime</span>
-                    <span style={{ cursor: "pointer", fontWeight: 700, color: C.blue }} onClick={() => alert("Local browser database synced: 100%")}>💾 Local Storage Synced</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ── Helpline & Support Row Bar ── */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, background: "linear-gradient(135deg, #0A2342 0%, #1565C0 100%)", borderRadius: 12, padding: "14px 20px", color: "#ffffff", alignItems: "center" }}>
+            {/* ── Dashboard Control Panel ── */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff", border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 20px" }}>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8, letterSpacing: "0.5px" }}>📞 HELPLINE NO</div>
-                <a href="tel:01243561100" style={{ fontSize: 14, fontWeight: 800, color: "#fff", textDecoration: "none" }}>{storeDetails?.helpline || "0-124-356-1100"}</a>
+                <strong style={{ fontSize: 14, color: C.navy }}>Pharmacy Admin Dashboard</strong>
+                <div style={{ fontSize: 11, color: C.text3, marginTop: 2 }}>Keep your local database synchronized with cloud data updates.</div>
               </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.8, letterSpacing: "0.5px" }}>⏰ SUPPORT TIME</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{storeDetails?.supportTime || "9:30 AM to 6:00 PM"}</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <button 
-                  onClick={() => setHelpSupportOpen(true)}
-                  style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "background 0.2s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.2)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
-                >
-                  💬 Help & Support Window
-                </button>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <button 
-                  onClick={() => setBankDetailsOpen(true)}
-                  style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "background 0.2s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.2)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
-                >
-                  🏦 PMBI Bank Details
-                </button>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <button 
-                  onClick={() => setUpdateLocationOpen(true)}
-                  style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "background 0.2s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.2)"}
-                  onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
-                >
-                  📍 Update Store Location
-                </button>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <button 
-                  onClick={() => {
-                    setRefreshing(true);
-                    setTimeout(() => {
-                      setRefreshing(false);
-                      setLastSyncSec(0);
-                      alert("✓ Dashboard Refreshed! Firebase datasets successfully re-synchronized.");
-                    }, 1000);
-                  }}
-                  style={{ background: C.teal2, border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  <span style={{ display: "inline-block", transform: refreshing ? "rotate(360deg)" : "none", transition: "transform 1s linear" }}>🔄</span>
-                  Refresh Dashboard
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  setRefreshing(true);
+                  setTimeout(() => {
+                    setRefreshing(false);
+                    setLastSyncSec(0);
+                    alert("✓ Dashboard Refreshed! Firebase datasets successfully re-synchronized.");
+                  }, 1000);
+                }}
+                style={{ background: C.teal2, border: "none", borderRadius: 8, padding: "8px 14px", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <span style={{ display: "inline-block", transform: refreshing ? "rotate(360deg)" : "none", transition: "transform 1s linear" }}>🔄</span>
+                Refresh Dashboard
+              </button>
             </div>
 
             {/* ── Action Cards Row (Zoho ERP Shortcuts layout) ── */}
