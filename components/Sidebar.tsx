@@ -227,6 +227,16 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const getTabGroup = (tab: string) => {
+  if (["billing"].includes(tab)) return "sale";
+  if (["purchase", "reorders", "pmbi-purchase"].includes(tab)) return "purchase";
+  if (["vendors", "inventory", "pmbi-opening-stock"].includes(tab)) return "master";
+  if (["reports", "pmbi-reports", "h1-tracking", "analytics"].includes(tab)) return "report";
+  if (["settings"].includes(tab)) return "utilities";
+  if (["bills"].includes(tab)) return "accounting";
+  return null;
+};
+
 // Heart icon missing from lucide import, adding inline
 function Heart(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -299,11 +309,14 @@ export default function Sidebar({
 }: SidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
     const initial = new Set<string>();
-    NAV_GROUPS.forEach((g) => {
-      if (g.defaultExpanded) initial.add(g.id);
-      // Auto-expand if active item is in this group
-      if (g.items.some((i) => i.id === activeTab)) initial.add(g.id);
-    });
+    const activeGroup = getTabGroup(activeTab);
+    if (activeGroup) {
+      initial.add(activeGroup);
+    } else {
+      NAV_GROUPS.forEach((g) => {
+        if (g.defaultExpanded) initial.add(g.id);
+      });
+    }
     return initial;
   });
 
@@ -311,34 +324,18 @@ export default function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
 
-  // Helper to map tab names/URLs to groups for auto-expansion
-  const getTabGroup = useCallback((tab: string) => {
-    // If activeTab is "billing" or matches sub-items target path suffix
-    if (["billing"].includes(tab)) return "sale";
-    if (["purchase", "reorders"].includes(tab)) return "purchase";
-    if (["vendors"].includes(tab)) return "master";
-    if (["inventory"].includes(tab)) return "master";
-    if (["reports"].includes(tab)) return "report";
-    if (["analytics"].includes(tab)) return "report";
-    if (["settings"].includes(tab)) return "utilities";
-    if (["bills"].includes(tab)) return "accounting";
-    return null;
-  }, []);
-
   // Auto-expand group containing active item
   useEffect(() => {
     const activeGroup = getTabGroup(activeTab);
     if (activeGroup) {
-      setExpandedGroups((prev) => new Set([...prev, activeGroup]));
+      setExpandedGroups(new Set([activeGroup]));
     }
-  }, [activeTab, getTabGroup]);
+  }, [activeTab]);
 
   const toggleGroup = useCallback((groupId: string) => {
     setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
+      const next = new Set<string>();
+      if (!prev.has(groupId)) {
         next.add(groupId);
       }
       return next;
