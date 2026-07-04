@@ -76,8 +76,8 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
     try {
       const XLSX = await import("xlsx");
       const wsData = [
-        ["DC Code", "Product Name", "Unit", "HSN Code", "Batch", "Qty.", "Mnf Date", "Exp Date", "MRP", "Rate", "Amount", "CGST value (%)", "SGST value(%)", "IGST value(%)"],
-        ["123", "LEVOCETIRIZINE 5MG", "Strip", "300490", "B-OS-200", "50", "2026-01", "2029-01", "120.00", "80.00", "4000.00", "6.0", "6.0", "0.0"]
+        ["DC Code", "Product Name", "Unit", "HSN Code", "Batch", "Qty.", "Mnf Date", "Exp Date", "MRP", "Rate", "Discount (%)", "Amount", "CGST value (%)", "SGST value(%)", "IGST value(%)"],
+        ["123", "LEVOCETIRIZINE 5MG", "Strip", "300490", "B-OS-200", "50", "2026-01", "2029-01", "120.00", "80.00", "0.00", "4000.00", "6.0", "6.0", "0.0"]
       ];
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -136,6 +136,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
             cgstRate: headers.findIndex(h => h.includes("cgst")),
             sgstRate: headers.findIndex(h => h.includes("sgst")),
             igstRate: headers.findIndex(h => h.includes("igst")),
+            discount: headers.findIndex(h => h.includes("disc") || h.includes("off")),
           };
 
           // Helper: parse expiry/mfg date from any format (including Excel serial numbers)
@@ -202,7 +203,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
             const purVal = idxMap.purchasePrice !== -1 ? parseFloat(String(row[idxMap.purchasePrice])) : parseFloat(mVal.purchasePrice) || 0;
             const qtyVal = idxMap.quantity !== -1 ? parseInt(String(row[idxMap.quantity]), 10) : 0;
             const freeVal = 0;
-            const discVal = 0;
+            const discVal = idxMap.discount !== -1 ? parseFloat(String(row[idxMap.discount])) || 0 : 0;
 
             const cgstRateVal = idxMap.cgstRate !== -1 ? parseFloat(String(row[idxMap.cgstRate])) : 0;
             const sgstRateVal = idxMap.sgstRate !== -1 ? parseFloat(String(row[idxMap.sgstRate])) : 0;
@@ -1205,6 +1206,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
                       <th style={S.th}>Mfg / Exp Date</th>
                       <th style={{ ...S.th, textAlign: "right" }}>MRP</th>
                       <th style={{ ...S.th, textAlign: "right" }}>Pur. Price</th>
+                      <th style={{ ...S.th, textAlign: "center" }}>Discount %</th>
                       <th style={{ ...S.th, textAlign: "center" }}>Qty + Free</th>
                       <th style={{ ...S.th, textAlign: "center" }}>GST %</th>
                       <th style={{ ...S.th, textAlign: "center" }}>Catalog Match</th>
@@ -1297,6 +1299,19 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
                             onChange={e => {
                               const updatedItems = [...importPreviewData.items];
                               updatedItems[idx].purchasePrice = parseFloat(e.target.value) || 0;
+                              setImportPreviewData({ ...importPreviewData, items: updatedItems });
+                            }}
+                          />
+                        </td>
+                        <td style={S.td}>
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            style={{ ...S.input, padding: "5px 8px", textAlign: "right", width: 60 }} 
+                            value={item.discount} 
+                            onChange={e => {
+                              const updatedItems = [...importPreviewData.items];
+                              updatedItems[idx].discount = parseFloat(e.target.value) || 0;
                               setImportPreviewData({ ...importPreviewData, items: updatedItems });
                             }}
                           />
