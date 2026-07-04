@@ -7083,6 +7083,16 @@ Schema:
                 <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>View, filter, and export stock inventory</div>
               </div>
 
+              {/* Card 13: Analytics */}
+              <div className="kpi-card" style={{ "--hover-accent": C.green }} onClick={() => setActiveTab("analytics")}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: C.text3, letterSpacing: "0.5px" }}>PROFIT & ANALYTICS</span>
+                  <span style={{ fontSize: 16 }}>📊</span>
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: C.green, marginTop: 8 }}>📈 View Analytics</div>
+                <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>P&L, margins, top medicines & trends</div>
+              </div>
+
             </div>
 
             {/* Recent Sales & Low Stock side-by-side section */}
