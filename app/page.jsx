@@ -10837,6 +10837,8 @@ Schema:
             borderRadius: 16,
             width: "100%",
             maxWidth: 600,
+            maxHeight: "90vh",
+            overflowY: "auto",
             padding: 24,
             boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
             border: `1px solid ${C.border}`
@@ -10917,7 +10919,7 @@ Schema:
               ))}
             </div>
 
-            <div style={{ background: "#EBF4FF", border: `1px solid ${C.blue}`, borderRadius: 8, padding: 12, marginBottom: 20 }}>
+            <div style={{ background: "#EBF4FF", border: `1px solid ${C.blue}`, borderRadius: 8, padding: 12, marginBottom: 20, maxHeight: 150, overflowY: "auto" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.blue, marginBottom: 4 }}>📋 Draft Message Preview:</div>
               <pre style={{ fontSize: 11, fontFamily: "monospace", whiteSpace: "pre-wrap", margin: 0, color: "#1E3A8A" }}>
                 {getWhatsAppPoText()}
