@@ -6429,10 +6429,10 @@ Schema:
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
-  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
+  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
 
   // Enforce staff restrictions dynamically
-  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
+  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
     setActiveTab("billing");
   }
 
@@ -9111,6 +9111,16 @@ Schema:
                   onChange={e => setReportFilters(f => ({ ...f, batchNo: e.target.value }))}
                 />
               </FF>
+
+              <FF label="Filter by Drug Code">
+                <input
+                  type="text"
+                  placeholder="e.g. 1045"
+                  style={S.input}
+                  value={reportFilters.drugCode || ""}
+                  onChange={e => setReportFilters(f => ({ ...f, drugCode: e.target.value }))}
+                />
+              </FF>
             </div>
 
             {/* ACTION PANELS FOR EXPORTS */}
@@ -9468,6 +9478,11 @@ Schema:
                   if (reportFilters.batchNo) {
                     if (!item.batchNumber?.toLowerCase().includes(reportFilters.batchNo.toLowerCase())) return;
                   }
+                  // drug code filter
+                  if (reportFilters.drugCode) {
+                    const dc = reportFilters.drugCode.toLowerCase();
+                    if (!String(item.drugCode || "").toLowerCase().includes(dc)) return;
+                  }
                   // date range
                   if (reportFilters.startDate && d < new Date(reportFilters.startDate)) return;
                   if (reportFilters.endDate && d > new Date(reportFilters.endDate + "T23:59:59")) return;
@@ -9506,6 +9521,11 @@ Schema:
                     const match = item.batchNumber?.toLowerCase().includes(batchLow) ||
                       (item.batchesUsed || []).some(bu => bu.batchNumber?.toLowerCase().includes(batchLow));
                     if (!match) return;
+                  }
+                  // drug code filter
+                  if (reportFilters.drugCode) {
+                    const dc = reportFilters.drugCode.toLowerCase();
+                    if (!String(item.drugCode || "").toLowerCase().includes(dc)) return;
                   }
                   const batchLabel = item.batchesUsed?.length
                     ? item.batchesUsed.map(b => b.batchNumber).join(", ")
@@ -9947,6 +9967,12 @@ Schema:
                                            (item.batchesUsed && item.batchesUsed.some(bu => bu.batchNumber?.toLowerCase().includes(batchLower)));
                         if (!matchBatch) return;
                       }
+                      // Filter by drug code
+                      if (reportFilters.drugCode) {
+                        const dcLower = reportFilters.drugCode.toLowerCase();
+                        const matchDc = (item.drugCode || "").toLowerCase().includes(dcLower);
+                        if (!matchDc) return;
+                      }
 
                       let batchNo = item.batchNumber || "—";
                       let expiry = item.expiryDate || "—";
@@ -10057,6 +10083,12 @@ Schema:
                         const batchLower = reportFilters.batchNo.toLowerCase();
                         if (!item.batchNumber?.toLowerCase().includes(batchLower)) return;
                       }
+                      // Filter by drug code
+                      if (reportFilters.drugCode) {
+                        const dcLower = reportFilters.drugCode.toLowerCase();
+                        const matchDc = (item.drugCode || "").toLowerCase().includes(dcLower);
+                        if (!matchDc) return;
+                      }
 
                       itemisedPurchases.push({
                         date: purchaseDate,
@@ -10154,6 +10186,12 @@ Schema:
                         const batchLower = reportFilters.batchNo.toLowerCase();
                         if (!item.batchNumber?.toLowerCase().includes(batchLower)) return;
                       }
+                      // Filter by drug code
+                      if (reportFilters.drugCode) {
+                        const dcLower = reportFilters.drugCode.toLowerCase();
+                        const matchDc = (item.drugCode || "").toLowerCase().includes(dcLower);
+                        if (!matchDc) return;
+                      }
 
                       ledgerEntries.push({
                         date: d,
@@ -10189,6 +10227,12 @@ Schema:
                         const matchBatch = item.batchNumber?.toLowerCase().includes(batchLower) || 
                                            (item.batchesUsed && item.batchesUsed.some(bu => bu.batchNumber?.toLowerCase().includes(batchLower)));
                         if (!matchBatch) return;
+                      }
+                      // Filter by drug code
+                      if (reportFilters.drugCode) {
+                        const dcLower = reportFilters.drugCode.toLowerCase();
+                        const matchDc = (item.drugCode || "").toLowerCase().includes(dcLower);
+                        if (!matchDc) return;
                       }
 
                       let batchNo = item.batchNumber || "—";

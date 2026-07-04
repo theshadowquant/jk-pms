@@ -87,7 +87,8 @@ export default function StockInventoryReport({ db, storeId, storeCode, user, med
       (m.drugCode || "").toLowerCase().includes(sTerm) ||
       (m.barcode || "").toLowerCase().includes(sTerm) ||
       (m.genericName || "").toLowerCase().includes(sTerm) ||
-      (m.brandName || "").toLowerCase().includes(sTerm);
+      (m.brandName || "").toLowerCase().includes(sTerm) ||
+      (m.batches || []).some((b: any) => (b.batchNumber || "").toLowerCase().includes(sTerm));
 
     let matchCat = true;
     if (categoryFilter === "pmbi") {
