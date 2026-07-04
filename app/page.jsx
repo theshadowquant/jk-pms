@@ -9,7 +9,7 @@ import H1DrugTracking from "@/components/H1DrugTracking";
 import StockInventoryReport from "@/components/StockInventoryReport";
 import Analytics from "@/components/Analytics";
 import { auth, db } from "@/lib/firebase";
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
 
 
@@ -426,6 +426,21 @@ export default function PharmacyApp() {
   const [suppliers, setSuppliers] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [now, setNow] = useState(new Date());
+
+  const handleSignOut = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("jk_pms_active_tab");
+      localStorage.removeItem("jk_pms_draft_bill_items");
+      localStorage.removeItem("jk_pms_draft_cust_name");
+      localStorage.removeItem("jk_pms_draft_cust_phone");
+      localStorage.removeItem("jk_pms_draft_payment_mode");
+      localStorage.removeItem("jk_pms_draft_purchase_form");
+      localStorage.removeItem("jk_pms_report_filters");
+      localStorage.removeItem("jk_pms_default_print_type");
+    }
+    setActiveTab("billing");
+    signOut(auth).catch(err => console.error("Sign out error:", err));
+  };
 
   // Collapse sidebar by default on mobile screens
   useEffect(() => {
@@ -1165,6 +1180,10 @@ export default function PharmacyApp() {
 
   // ── AUTH & SaaS ONBOARDING EFFECT ──
   useEffect(() => {
+    setPersistence(auth, browserSessionPersistence).catch(err => {
+      console.error("Failed to set auth persistence:", err);
+    });
+
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
@@ -5868,7 +5887,7 @@ Schema:
                 <span style={{ fontSize: 15, fontWeight: 700, color: C.navy }}>🔗 Join an Existing Store</span>
                 <span style={{ fontSize: 12, color: C.text2 }}>Register as a billing staff cashier using an existing unique store code.</span>
               </button>
-              <button onClick={() => signOut(auth)} style={{ ...S.btn("outline"), padding: 12, width: "100%" }}>Sign Out</button>
+              <button onClick={handleSignOut} style={{ ...S.btn("outline"), padding: 12, width: "100%" }}>Sign Out</button>
             </div>
           )}
 
@@ -6616,7 +6635,7 @@ Schema:
         storeCode={storeCode}
         userRole={userRole}
         userEmail={user?.email || ""}
-        onSignOut={() => signOut(auth)}
+        onSignOut={handleSignOut}
         onOpenModal={(type) => {
           if (type === "openingStock") {
             setActiveTab("inventory");
