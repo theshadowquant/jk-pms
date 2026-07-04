@@ -10650,6 +10650,55 @@ Schema:
                 })}
               </div>
             </div>
+
+            <div style={S.card}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.navy, borderBottom: `1px solid ${C.border}`, paddingBottom: 8, marginBottom: 12 }}>User Account Security</div>
+              <p style={{ fontSize: 13, color: C.text2, lineHeight: 1.5, marginBottom: 14 }}>
+                Update the password for your active account: <strong>{user?.email}</strong>.
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 340 }}>
+                <div>
+                  <label style={S.label}>New Password</label>
+                  <input 
+                    type="password"
+                    style={S.input}
+                    id="security-new-password"
+                    placeholder="Enter new password (min 6 chars)"
+                  />
+                </div>
+                <button
+                  style={{ ...S.btn("teal"), width: "100%", justifyContent: "center" }}
+                  onClick={async () => {
+                    const passInput = document.getElementById("security-new-password");
+                    const newPass = passInput ? passInput.value : "";
+                    if (!newPass || newPass.length < 6) {
+                      alert("Password must be at least 6 characters long.");
+                      return;
+                    }
+                    try {
+                      const { updatePassword } = await import("firebase/auth");
+                      if (auth.currentUser) {
+                        await updatePassword(auth.currentUser, newPass);
+                        alert("✓ Password successfully updated!");
+                        if (passInput) passInput.value = "";
+                      } else {
+                        alert("No authenticated user found.");
+                      }
+                    } catch (e) {
+                      console.error(e);
+                      if (e.message && e.message.includes("requires-recent-login")) {
+                        alert("⚠ Security requirement: Changing your password requires you to have signed in recently. Please sign out, sign back in immediately, and return to this page to change your password.");
+                      } else {
+                        alert("Error updating password: " + e.message);
+                      }
+                    }
+                  }}
+                >
+                  🔒 Update Password
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
