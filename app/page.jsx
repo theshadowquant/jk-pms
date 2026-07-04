@@ -414,7 +414,7 @@ export default function PharmacyApp() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showProfit, setShowProfit] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("billing");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [doctorName, setDoctorName] = useState("");
   const [doctorDropdownOpen, setDoctorDropdownOpen] = useState(false);
   const [prescriptionNo, setPrescriptionNo] = useState("");
@@ -439,7 +439,7 @@ export default function PharmacyApp() {
       localStorage.removeItem("jk_pms_report_filters");
       localStorage.removeItem("jk_pms_default_print_type");
     }
-    setActiveTab("billing");
+    setActiveTab("dashboard");
     setIsSalesLoaded(false);
     signOut(auth).catch(err => console.error("Sign out error:", err));
   };
@@ -1090,9 +1090,7 @@ export default function PharmacyApp() {
   useEffect(() => {
     setIsClient(true);
     
-    const savedTab = localStorage.getItem("jk_pms_active_tab");
-    if (savedTab) setActiveTab(savedTab);
-    
+
     try {
       const draftMeds = localStorage.getItem("jk_pms_draft_bill_items");
       if (draftMeds) setBillItems(JSON.parse(draftMeds));
@@ -1145,10 +1143,6 @@ export default function PharmacyApp() {
     localStorage.setItem("jk_pms_default_print_type", defaultPrintType);
   }, [defaultPrintType, isClient]);
 
-  useEffect(() => {
-    if (!isClient) return;
-    localStorage.setItem("jk_pms_active_tab", activeTab);
-  }, [activeTab, isClient]);
 
   useEffect(() => {
     if (!isClient) return;
