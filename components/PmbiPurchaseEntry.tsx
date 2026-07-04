@@ -1027,7 +1027,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
           <div style={{ background: C.navy, color: "#fff", padding: "12px 16px", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>
             📋 Invoice Line Items
           </div>
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
               <thead>
                 <tr>
@@ -1162,7 +1162,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: 20, overflowY: "auto", flex: 1 }}>
+            <div style={{ padding: 20, overflowY: "auto", WebkitOverflowScrolling: "touch", flex: 1 }}>
               {/* Header mappings */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 20, padding: 14, background: "#F8FAFC", borderRadius: 10, border: `1px solid ${C.border}` }}>
                 <div>
@@ -1196,8 +1196,8 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
 
               {/* Items grid */}
               <strong style={{ fontSize: 12, color: C.navy, textTransform: "uppercase", letterSpacing: "0.5px" }}>Line Items Extracted ({importPreviewData.items.length})</strong>
-              <div style={{ overflowX: "auto", marginTop: 8, border: `1.5px solid ${C.border}`, borderRadius: 10 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", marginTop: 8, border: `1.5px solid ${C.border}`, borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
                   <thead>
                     <tr style={{ background: "#F8FAFC" }}>
                       <th style={S.th}>Drug Code</th>
