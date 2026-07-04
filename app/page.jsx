@@ -422,6 +422,7 @@ export default function PharmacyApp() {
   const [mappingSearchText, setMappingSearchText] = useState({});
   const [medicines, setMedicines] = useState([]);
   const [sales, setSales] = useState([]);
+  const [isSalesLoaded, setIsSalesLoaded] = useState(false);
   const [purchases, setPurchases] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
@@ -439,6 +440,7 @@ export default function PharmacyApp() {
       localStorage.removeItem("jk_pms_default_print_type");
     }
     setActiveTab("billing");
+    setIsSalesLoaded(false);
     signOut(auth).catch(err => console.error("Sign out error:", err));
   };
 
@@ -749,7 +751,7 @@ export default function PharmacyApp() {
 
   // Generate active invoice number on sales update
   useEffect(() => {
-    if (!activeInvoiceNo) {
+    if (isSalesLoaded && !activeInvoiceNo) {
       const yr = new Date().getFullYear();
       let maxSeq = 0;
       sales.forEach(s => {
@@ -770,7 +772,7 @@ export default function PharmacyApp() {
       const nextSeq = String(maxSeq + 1).padStart(6, "0");
       setActiveInvoiceNo(`SI${yr}${nextSeq}`);
     }
-  }, [sales, activeInvoiceNo]);
+  }, [sales, activeInvoiceNo, isSalesLoaded]);
 
   const handleNewInvoice = (nextInvoiceNo = null) => {
     setBillItems([]);
@@ -1308,8 +1310,12 @@ export default function PharmacyApp() {
         return tB - tA;
       });
       setSales(items);
+      setIsSalesLoaded(true);
       setLastSyncSec(0);
-    }, err => handleIndexError(err, "sales"));
+    }, err => {
+      handleIndexError(err, "sales");
+      setIsSalesLoaded(true);
+    });
 
     const u3 = onSnapshot(qPurch, snap => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
