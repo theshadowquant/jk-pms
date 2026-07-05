@@ -309,7 +309,7 @@ const C = {
 const S = {
   topbar: { background: "#ffffff", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", flexShrink: 0, borderBottom: `1px solid ${C.border}` },
   logoMark: { width: 38, height: 38, borderRadius: 9, background: C.teal2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 },
-  main: { flex: 1, padding: "24px", overflowX: "hidden", background: C.bg, overflowY: "auto" },
+  main: { flex: 1, padding: "24px", overflowX: "hidden", background: C.bg, overflowY: "auto", minHeight: 0 },
   card: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
   input: { fontFamily: "inherit", fontSize: 13, border: `1.5px solid ${C.border2}`, borderRadius: 8, padding: "9px 12px", background: "#fff", color: C.text, outline: "none", width: "100%", transition: "border-color 0.15s ease" },
   label: { display: "block", fontSize: 11, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 },
@@ -6451,18 +6451,23 @@ Schema:
       {/* ── Custom CSS Stylings & Keyframes ── */}
       <style>{`
         ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
+          width: 8px;
+          height: 8px;
         }
         ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(13, 115, 119, 0.15);
+          background: rgba(0, 0, 0, 0.02);
           border-radius: 4px;
         }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(13, 115, 119, 0.4);
+          border-radius: 4px;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+        }
         ::-webkit-scrollbar-thumb:hover {
-          background: rgba(13, 115, 119, 0.3);
+          background: rgba(13, 115, 119, 0.7);
+          border: 2px solid transparent;
+          background-clip: padding-box;
         }
 
         .main-content-layout {
