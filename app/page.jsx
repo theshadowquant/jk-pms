@@ -1822,6 +1822,16 @@ export default function PharmacyApp() {
     return { base, disc, total, gstRate, taxableValue, gstAmount, cgst, sgst };
   };
   
+  const roundPaisa = (val) => {
+    const floorVal = Math.floor(val);
+    const frac = val - floorVal;
+    const fracRounded = Math.round(frac * 100) / 100;
+    if (fracRounded >= 0.1) {
+      return Math.ceil(val);
+    }
+    return floorVal;
+  };
+  
   const totals = billItems.reduce((a, i) => {
     const c = calcItem(i);
     return {
@@ -1834,6 +1844,10 @@ export default function PharmacyApp() {
       sgst: a.sgst + c.sgst,
     };
   }, { sub: 0, disc: 0, grand: 0, taxable: 0, gst: 0, cgst: 0, sgst: 0 });
+
+  const netAmountRounded = roundPaisa(totals.grand);
+  const roundOffValue = netAmountRounded - totals.grand;
+  const avgGstPct = totals.taxable > 0 ? ((totals.gst / totals.taxable) * 100) : 0;
   const searchResults = (billSearch.length >= 2 || (billSearch.length >= 1 && /^\d+$/.test(billSearch)))
     ? [
         ...medicines
@@ -2794,8 +2808,9 @@ Schema:
           sgstAmount: sgstSum,
           totalGst: gstSum,
           cogs: cogsSum,
-          profit: grandSum - cogsSum,
-          grandTotal: grandSum,
+          profit: roundPaisa(grandSum) - cogsSum,
+          grandTotal: roundPaisa(grandSum),
+          roundOff: roundPaisa(grandSum) - grandSum,
           paymentMode,
           doctorName: doctorName || "",
           prescriptionNo: prescriptionNo || "",
@@ -7789,12 +7804,12 @@ Schema:
                   <tbody>
                     <tr>
                       <td style={{ ...S.td, padding: "6px 8px" }}>SGST (State Tax)</td>
-                      <td style={{ ...S.td, padding: "6px 8px", textAlign: "right" }}>6.00%</td>
+                      <td style={{ ...S.td, padding: "6px 8px", textAlign: "right" }}>{avgGstPct > 0 ? (avgGstPct / 2).toFixed(2) + "%" : "0.00%"}</td>
                       <td style={{ ...S.td, padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C.navy }}>₹{(totals.sgst || 0).toFixed(2)}</td>
                     </tr>
                     <tr>
                       <td style={{ ...S.td, padding: "6px 8px", borderBottom: "none" }}>CGST (Central Tax)</td>
-                      <td style={{ ...S.td, padding: "6px 8px", textAlign: "right", borderBottom: "none" }}>6.00%</td>
+                      <td style={{ ...S.td, padding: "6px 8px", textAlign: "right", borderBottom: "none" }}>{avgGstPct > 0 ? (avgGstPct / 2).toFixed(2) + "%" : "0.00%"}</td>
                       <td style={{ ...S.td, padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C.navy, borderBottom: "none" }}>₹{(totals.cgst || 0).toFixed(2)}</td>
                     </tr>
                   </tbody>
@@ -7848,20 +7863,20 @@ Schema:
                     <span>Tax Amount:</span>
                     <span style={{ fontWeight: 600 }}>₹{(totals.cgst + totals.sgst).toFixed(2)}</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span>Round Off (+/-):</span>
-                    <span style={{ color: C.text3 }}>₹{(totals.grand - (totals.sub - totals.disc + totals.cgst + totals.sgst)).toFixed(2)}</span>
+                    <span style={{ color: C.text3 }}>₹{roundOffValue.toFixed(2)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, fontSize: 16 }}>
                     <span style={{ fontWeight: 800, color: C.navy }}>Net Amount:</span>
-                    <strong style={{ color: C.green }}>₹{totals.grand.toFixed(2)}</strong>
+                    <strong style={{ color: C.green }}>₹{netAmountRounded.toFixed(2)}</strong>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px dashed ${C.border2}`, paddingTop: 6 }}>
                     <span>Pay Amount (₹):</span>
                     <input 
                       type="number" 
                       style={{ ...S.input, width: 110, padding: "5px 8px", fontSize: 13, fontWeight: 800, color: C.green, textAlign: "right" }}
-                      value={totals.grand.toFixed(2)}
+                      value={netAmountRounded.toFixed(2)}
                       disabled
                     />
                   </div>

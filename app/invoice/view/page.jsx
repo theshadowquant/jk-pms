@@ -83,6 +83,16 @@ function InvoiceViewerContent() {
     return convertHelper(totalVal) + " Rupees Only";
   }
 
+  const roundPaisa = (val) => {
+    const floorVal = Math.floor(val);
+    const frac = val - floorVal;
+    const fracRounded = Math.round(frac * 100) / 100;
+    if (fracRounded >= 0.1) {
+      return Math.ceil(val);
+    }
+    return floorVal;
+  };
+
   let totalQty = 0;
   let totalTaxableVal = 0;
   let totalCgstAmt = 0;
@@ -137,7 +147,10 @@ function InvoiceViewerContent() {
     };
   });
 
-  const upiPayUri = `upi://pay?pa=7676309842@jupiteraxis&pn=Pradhan%20Mantri%20Bharatiya%20Janaushadhi%20Kendra&am=${totalFinalAmt.toFixed(2)}&cu=INR`;
+  const roundedGrandTotal = bill.grandTotal || roundPaisa(totalFinalAmt);
+  const roundOffAmount = typeof bill.roundOff === "number" ? bill.roundOff : (roundedGrandTotal - totalFinalAmt);
+
+  const upiPayUri = `upi://pay?pa=7676309842@jupiteraxis&pn=Pradhan%20Mantri%20Bharatiya%20Janaushadhi%20Kendra&am=${roundedGrandTotal.toFixed(2)}&cu=INR`;
   const upiQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiPayUri)}`;
 
   return (
@@ -242,7 +255,7 @@ function InvoiceViewerContent() {
         <div style={styles.summaryGrid}>
           {/* Words */}
           <div style={styles.wordsBlock}>
-            <strong>Total (in words) :</strong> <span style={{ italic: "true" }}>{numberToWords(totalFinalAmt)}</span>
+            <strong>Total (in words) :</strong> <span style={{ italic: "true" }}>{numberToWords(roundedGrandTotal)}</span>
           </div>
           {/* Totals */}
           <div style={styles.totalsTableBlock}>
@@ -264,9 +277,15 @@ function InvoiceViewerContent() {
                   <td style={styles.summaryTdLabel}>Discounts</td>
                   <td style={styles.summaryTdVal}>₹{(bill.totalDiscount || 0).toFixed(2)}</td>
                 </tr>
+                {roundOffAmount !== 0 && (
+                  <tr style={styles.summaryTr}>
+                    <td style={styles.summaryTdLabel}>Round Off</td>
+                    <td style={styles.summaryTdVal}>₹{roundOffAmount.toFixed(2)}</td>
+                  </tr>
+                )}
                 <tr style={{ ...styles.summaryTr, borderBottom: "none" }}>
                   <td style={{ ...styles.summaryTdLabel, fontWeight: 700, color: "#0A2342", fontSize: 13 }}>Total (INR)</td>
-                  <td style={{ ...styles.summaryTdVal, fontWeight: 700, color: "#1B7A4E", fontSize: 14 }}>₹{totalFinalAmt.toFixed(2)}</td>
+                  <td style={{ ...styles.summaryTdVal, fontWeight: 700, color: "#1B7A4E", fontSize: 14 }}>₹{roundedGrandTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
