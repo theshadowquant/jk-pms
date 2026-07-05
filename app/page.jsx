@@ -635,6 +635,12 @@ export default function PharmacyApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddMedForm, setShowAddMedForm] = useState(false);
   const [newMed, setNewMed] = useState({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", stockQty: "", unit: "Strip", lowStockAlert: "20", category: "", gstRate: "12" });
+  const [editingMed, setEditingMed] = useState(null);
+  const [editMedForm, setEditMedForm] = useState({
+    genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "",
+    batchNumber: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "",
+    stockQty: "", lowStockAlert: "20", category: "", gstRate: "12"
+  });
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [viewingPurchase, setViewingPurchase] = useState(null); // purchase detail modal
   const [purchaseForm, setPurchaseForm] = useState({ supplierName: "", invoiceNumber: "", invoiceDate: "", paymentStatus: "Unpaid", items: [] });
@@ -2902,6 +2908,133 @@ Schema:
       setNewMed({ genericName: "", brandName: "", strength: "", form: "Tablet", barcode: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "", stockQty: "", unit: "Strip", lowStockAlert: "20", category: "", gstRate: "12" });
       alert("✓ Medicine successfully saved and stock initialized!");
     } catch (err) { alert("Error: " + err.message); }
+  };
+
+  const handleStartEditMedicine = (med) => {
+    const firstBatch = Array.isArray(med.batches) && med.batches.length > 0 ? med.batches[0] : null;
+    const batchNo = med.batchNumber || firstBatch?.batchNumber || "";
+    const expDate = med.expiryDate || firstBatch?.expiryDate || "";
+    
+    setEditingMed(med);
+    setEditMedForm({
+      genericName: med.genericName || "",
+      brandName: med.brandName || "",
+      strength: med.strength || "",
+      form: med.form || "Tablet",
+      barcode: med.barcode || "",
+      batchNumber: batchNo,
+      expiryDate: expDate,
+      mrp: med.mrp ? String(med.mrp) : "",
+      sellingPrice: med.sellingPrice ? String(med.sellingPrice) : "",
+      purchasePrice: med.purchasePrice ? String(med.purchasePrice) : (firstBatch?.purchasePrice ? String(firstBatch.purchasePrice) : ""),
+      stockQty: med.stockQty ? String(med.stockQty) : "0",
+      lowStockAlert: med.lowStockAlert ? String(med.lowStockAlert) : "20",
+      category: med.category || "",
+      gstRate: med.gstRate ? String(med.gstRate) : "12"
+    });
+    setShowAddMedForm(false);
+  };
+
+  const updateMedicine = async () => {
+    if (!editMedForm.genericName || !editMedForm.mrp || !editMedForm.stockQty) {
+      alert("Please fill in all mandatory fields.");
+      return;
+    }
+    if (!storeId) { alert("Error: No store linked to user."); return; }
+
+    const mrpVal = +editMedForm.mrp || 0;
+    const sellVal = +editMedForm.sellingPrice || mrpVal;
+    const buyVal = +editMedForm.purchasePrice || 0;
+    const qtyVal = +editMedForm.stockQty || 0;
+    const batchNo = editMedForm.batchNumber || "BAT-GEN";
+    const expDate = editMedForm.expiryDate || "2027-12";
+
+    if (qtyVal > 0 && buyVal <= 0) {
+      alert("⚠ Hard financial validation failed: Landed purchase price is required to calculate profitability on stock additions.");
+      return;
+    }
+
+    setDbLoading(true);
+    try {
+      const medRef = doc(db, "medicines", editingMed.id);
+
+      await runTransaction(db, async (transaction) => {
+        const medSnap = await transaction.get(medRef);
+        if (!medSnap.exists()) {
+          throw new Error("Medicine document not found.");
+        }
+
+        const existing = medSnap.data();
+        let currentBatches = Array.isArray(existing.batches) ? [...existing.batches] : [];
+
+        if (currentBatches.length > 0) {
+          currentBatches[0] = {
+            ...currentBatches[0],
+            batchNumber: batchNo,
+            expiryDate: expDate,
+            quantity: qtyVal,
+            purchasePrice: buyVal,
+            mrp: mrpVal,
+            sellingPrice: sellVal
+          };
+        } else {
+          currentBatches.push({
+            batchNumber: batchNo,
+            expiryDate: expDate,
+            quantity: qtyVal,
+            purchasePrice: buyVal,
+            mrp: mrpVal,
+            sellingPrice: sellVal
+          });
+        }
+
+        transaction.update(medRef, {
+          genericName: editMedForm.genericName,
+          brandName: editMedForm.brandName || "",
+          strength: editMedForm.strength || "",
+          form: editMedForm.form || "Tablet",
+          barcode: editMedForm.barcode || "",
+          category: editMedForm.category || "",
+          lowStockAlert: +editMedForm.lowStockAlert || 20,
+          gstRate: +editMedForm.gstRate || 12,
+          mrp: mrpVal,
+          sellingPrice: sellVal,
+          purchasePrice: buyVal,
+          stockQty: qtyVal,
+          batches: currentBatches,
+          updatedAt: serverTimestamp()
+        });
+
+        if (qtyVal !== editingMed.stockQty) {
+          const auditCol = collection(db, "inventory_audit_logs");
+          const auditDocRef = doc(auditCol);
+          transaction.set(auditDocRef, {
+            storeId,
+            medicineId: editingMed.id,
+            genericName: editMedForm.genericName,
+            brandName: editMedForm.brandName || "",
+            batchNumber: batchNo,
+            type: "STOCK_CORRECTION",
+            actionSource: "INVENTORY_EDIT",
+            referenceId: "MEDICINE-EDIT",
+            quantityChanged: qtyVal - editingMed.stockQty,
+            previousQuantity: editingMed.stockQty,
+            newQuantity: qtyVal,
+            purchasePrice: buyVal,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid
+          });
+        }
+      });
+
+      setEditingMed(null);
+      alert("✓ Medicine successfully updated!");
+    } catch (err) {
+      console.error(err);
+      alert("Error updating medicine: " + err.message);
+    } finally {
+      setDbLoading(false);
+    }
   };
 
   const mapTemporaryItem = async (saleId, itemIdx, medicineId) => {
@@ -8641,6 +8774,54 @@ Schema:
                 </div>
               </div>
             )}
+
+            {editingMed && (
+              <div style={{ ...S.card, border: `1.5px solid ${C.blue}`, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
+                  <span>✏️ Edit Medicine Details</span>
+                  <span style={{ fontSize: 11, color: C.text3, textTransform: "none" }}>Editing: {editingMed.genericName}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {[
+                    ["Generic Name *", "genericName", "text"],
+                    ["Brand Name", "brandName", "text"],
+                    ["Strength (e.g. 500mg)", "strength", "text"],
+                    ["Form (e.g. Tablet)", "form", "text"],
+                    ["Barcode", "barcode", "text"],
+                    ["Batch No.", "batchNumber", "text"],
+                    ["Expiry (YYYY-MM)", "expiryDate", "text"],
+                    ["MRP (₹) *", "mrp", "number"],
+                    ["Retail Selling Price (₹)", "sellingPrice", "number"],
+                    ["Purchase Price (₹)", "purchasePrice", "number"],
+                    ["Stock Qty *", "stockQty", "number"],
+                    ["Low Stock Alert", "lowStockAlert", "number"],
+                    ["Category", "category", "text"]
+                  ].map(([label, key, type]) => (
+                    <FF key={key} label={label}>
+                      <input 
+                        type={type} 
+                        style={S.input} 
+                        value={editMedForm[key]} 
+                        onChange={e => setEditMedForm(p => ({ ...p, [key]: e.target.value }))} 
+                      />
+                    </FF>
+                  ))}
+                  <FF label="GST Rate (%)">
+                    <select 
+                      style={S.input} 
+                      value={editMedForm.gstRate} 
+                      onChange={e => setEditMedForm(p => ({ ...p, gstRate: e.target.value }))}
+                    >
+                      {["0", "5", "12", "18", "28"].map(g => <option key={g} value={g}>{g}%</option>)}
+                    </select>
+                  </FF>
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button style={S.btn("primary")} onClick={updateMedicine}>Save Changes</button>
+                  <button style={S.btn("outline")} onClick={() => setEditingMed(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
             {/* REORDER SUGGESTIONS */}
             {reorderList.length > 0 && (
               <div style={{ background: "#FEF9EC", border: "1.5px solid #F6D860", borderRadius: 10, padding: 14, marginBottom: 14 }}>
@@ -8693,10 +8874,17 @@ Schema:
                             <td style={S.td}>
                               <button 
                                 onClick={() => handleOpenOpeningStock(m)} 
-                                style={{ background: "none", border: "none", color: C.teal, cursor: "pointer", fontSize: 12, marginRight: 12, fontWeight: 700 }} 
+                                style={{ background: "none", border: "none", color: C.teal, cursor: "pointer", fontSize: 12, marginRight: 10, fontWeight: 700 }} 
                                 title="Add Opening Stock Batch"
                               >
                                 ＋ Opening Stock
+                              </button>
+                              <button 
+                                onClick={() => handleStartEditMedicine(m)} 
+                                style={{ background: "none", border: "none", color: C.blue, cursor: "pointer", fontSize: 12, marginRight: 10, fontWeight: 700 }} 
+                                title="Edit Medicine Details"
+                              >
+                                ✏️ Edit
                               </button>
                               <button onClick={() => deleteMedicine(m.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14 }} title="Delete Medicine">🗑️</button>
                             </td>
