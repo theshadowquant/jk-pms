@@ -9,6 +9,7 @@ interface PmbiOpeningStockProps {
   storeCode: string;
   user: any;
   medicines: any[];
+  pmbiItems: any[];
 }
 
 const C = {
@@ -46,7 +47,7 @@ const S = {
   td: { padding: "12px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 13, color: C.text2 } as React.CSSProperties,
 };
 
-export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicines }: PmbiOpeningStockProps) {
+export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicines, pmbiItems }: PmbiOpeningStockProps) {
   // Opening Stock Fields
   const [drugCode, setDrugCode] = useState("");
   const [drugName, setDrugName] = useState("");
@@ -86,16 +87,45 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
   // Autocomplete search of catalog
   useEffect(() => {
     if (drugCode.length >= 2) {
-      const results = medicines.filter((m: any) => 
+      const medResults = medicines.filter((m: any) => 
         m.category === "PMBI" && 
         ((m.drugCode || "").toLowerCase().includes(drugCode.toLowerCase()) || 
          (m.genericName || "").toLowerCase().includes(drugCode.toLowerCase()))
       );
-      setDrugResults(results.slice(0, 5));
+
+      const catalogResults = Array.isArray(pmbiItems)
+        ? pmbiItems.filter((item: any) =>
+            (item.drugCode || "").toLowerCase().includes(drugCode.toLowerCase()) || 
+            (item.genericName || "").toLowerCase().includes(drugCode.toLowerCase())
+          ).map(item => ({
+            id: `catalog_${item.drugCode}`,
+            drugCode: item.drugCode,
+            genericName: item.genericName,
+            brandName: item.genericName,
+            mrp: item.mrp || 0,
+            sellingPrice: item.mrp || 0,
+            purchasePrice: 0,
+            gstRate: 12,
+            companyName: "PMBI",
+            category: "PMBI",
+            isH1Drug: false,
+            isCatalogOnly: true
+          }))
+        : [];
+
+      // Merge and deduplicate by drugCode
+      const merged = [...medResults];
+      catalogResults.forEach(cat => {
+        if (!merged.some(m => m.drugCode?.toLowerCase() === cat.drugCode?.toLowerCase())) {
+          merged.push(cat);
+        }
+      });
+
+      setDrugResults(merged.slice(0, 8));
     } else {
       setDrugResults([]);
     }
-  }, [drugCode, medicines]);
+  }, [drugCode, medicines, pmbiItems]);
 
   const handleSelectPmbiDrug = (med: any) => {
     setDrugCode(med.drugCode || "");
@@ -348,6 +378,9 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
           const medColRef = collection(db, "medicines");
           const newMedDoc = doc(medColRef);
 
+          const matchedCatalog = pmbiItems?.find(item => item.drugCode?.toLowerCase() === drugCode.trim().toLowerCase());
+          const formVal = matchedCatalog?.unitSize || "Tablet";
+
           transaction.set(newMedDoc, {
             storeId,
             storeCode,
@@ -363,6 +396,7 @@ export default function PmbiOpeningStock({ db, storeId, storeCode, user, medicin
             lowStockAlert: 20,
             gstRate: gstRateVal,
             isH1Drug,
+            form: formVal,
             batches: [newBatch],
             createdAt: serverTimestamp(),
             createdBy: user.uid

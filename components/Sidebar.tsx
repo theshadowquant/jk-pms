@@ -106,6 +106,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Accounts Master", id: "accounts-master", icon: Users, action: "navigate", target: "/vendors" },
       { label: "Inventory Master", id: "inventory-master", icon: Package, action: "navigate", target: "/inventory" },
+      { label: "PMBI Item Master", id: "pmbi-item-master", icon: FileText, action: "navigate", target: "/pmbi-item-master" },
       { label: "Rate Master", id: "rate-master", icon: TrendingUp, action: "toast" },
       { label: "Discount Master", id: "discount-master", icon: Minus, action: "toast" },
       { label: "Other Master", id: "other-master", icon: Wrench, action: "toast" },

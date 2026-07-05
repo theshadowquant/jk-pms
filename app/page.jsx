@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import PmbiPurchaseEntry from "@/components/PmbiPurchaseEntry";
 import PmbiOpeningStock from "@/components/PmbiOpeningStock";
+import PmbiItemMaster from "@/components/PmbiItemMaster";
 import PmbiReports from "@/components/PmbiReports";
 import H1DrugTracking from "@/components/H1DrugTracking";
 import StockInventoryReport from "@/components/StockInventoryReport";
@@ -421,6 +422,7 @@ export default function PharmacyApp() {
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [mappingSearchText, setMappingSearchText] = useState({});
   const [medicines, setMedicines] = useState([]);
+  const [pmbiItems, setPmbiItems] = useState([]);
   const [sales, setSales] = useState([]);
   const [isSalesLoaded, setIsSalesLoaded] = useState(false);
   const [purchases, setPurchases] = useState([]);
@@ -1279,6 +1281,7 @@ export default function PharmacyApp() {
     const qSales = query(collection(db, "sales"), where("storeId", "==", storeId));
     const qPurch = query(collection(db, "purchases"), where("storeId", "==", storeId));
     const qSups = query(collection(db, "suppliers"), where("storeId", "==", storeId));
+    const qPmbiItems = query(collection(db, "pmbi_items"), where("storeId", "==", storeId));
 
     const handleIndexError = (err, collectionName) => {
       console.error(`Firestore index required for ${collectionName}:`, err);
@@ -1370,7 +1373,13 @@ export default function PharmacyApp() {
       setDoctors(items);
     }, err => console.error("Doctors listen error", err));
 
-    return () => { u1(); u2(); u3(); u4(); uTemplates(); uSessions(); uSalesImportSessions(); uDoctors(); };
+    const uPmbiItems = onSnapshot(qPmbiItems, snap => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => (a.genericName || "").localeCompare(b.genericName || ""));
+      setPmbiItems(items);
+    }, err => console.error("PMBI Items catalog listen error", err));
+
+    return () => { u1(); u2(); u3(); u4(); uTemplates(); uSessions(); uSalesImportSessions(); uDoctors(); uPmbiItems(); };
   }, [user, storeId]);
 
   // Backfill legacy sales imports into sales_import_sessions
@@ -11299,6 +11308,18 @@ Schema:
             user={user}
             medicines={medicines}
             suppliers={suppliers}
+            pmbiItems={pmbiItems}
+          />
+        )}
+
+        {/* PMBI ITEM MASTER */}
+        {!dbLoading && activeTab === "pmbi-item-master" && (
+          <PmbiItemMaster
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            pmbiItems={pmbiItems}
           />
         )}
 
@@ -11310,6 +11331,7 @@ Schema:
             storeCode={storeCode}
             user={user}
             medicines={medicines}
+            pmbiItems={pmbiItems}
           />
         )}
 

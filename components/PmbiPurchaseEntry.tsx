@@ -10,6 +10,7 @@ interface PmbiPurchaseEntryProps {
   user: any;
   medicines: any[];
   suppliers: any[];
+  pmbiItems: any[];
 }
 
 const C = {
@@ -47,7 +48,7 @@ const S = {
   td: { padding: "12px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 13, color: C.text2 } as React.CSSProperties,
 };
 
-export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medicines, suppliers }: PmbiPurchaseEntryProps) {
+export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medicines, suppliers, pmbiItems }: PmbiPurchaseEntryProps) {
   // Invoice Header
   const [supplierName, setSupplierName] = useState("");
   const [supplierGstin, setSupplierGstin] = useState("");
@@ -198,6 +199,31 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               resolvedMed = medicines.find(m => m.category === "PMBI" && m.genericName?.toLowerCase() === rawName.toLowerCase());
             }
 
+            // Fallback: Resolve from PMBI Item Master Catalog
+            if (!resolvedMed && Array.isArray(pmbiItems)) {
+              let catalogItem = null;
+              if (rawCode) {
+                catalogItem = pmbiItems.find(item => item.drugCode?.toLowerCase() === rawCode.toLowerCase());
+              }
+              if (!catalogItem && rawName) {
+                catalogItem = pmbiItems.find(item => item.genericName?.toLowerCase() === rawName.toLowerCase());
+              }
+              if (catalogItem) {
+                resolvedMed = {
+                  id: `catalog_${catalogItem.drugCode}`,
+                  drugCode: catalogItem.drugCode,
+                  genericName: catalogItem.genericName,
+                  brandName: catalogItem.genericName,
+                  form: catalogItem.unitSize || "Tablet",
+                  mrp: catalogItem.mrp || 0,
+                  purchasePrice: 0,
+                  sellingPrice: catalogItem.mrp || 0,
+                  companyName: "PMBI",
+                  category: "PMBI"
+                };
+              }
+            }
+
             const mVal = resolvedMed || {};
             const mrpVal = idxMap.mrp !== -1 ? parseFloat(String(row[idxMap.mrp])) : parseFloat(mVal.mrp) || 0;
             const purVal = idxMap.purchasePrice !== -1 ? parseFloat(String(row[idxMap.purchasePrice])) : parseFloat(mVal.purchasePrice) || 0;
@@ -237,6 +263,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               gstRate: gstRateVal,
               discount: discVal,
               isH1Drug: !!mVal.isH1Drug,
+              form: mVal.form || "Tablet",
               catalogMatched: !!resolvedMed
             });
           });
@@ -303,6 +330,31 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               resolvedMed = medicines.find(m => m.category === "PMBI" && item.genericName.toLowerCase().includes((m.genericName || "").toLowerCase()));
             }
 
+            // Fallback: Resolve from PMBI Item Master Catalog
+            if (!resolvedMed && Array.isArray(pmbiItems)) {
+              let catalogItem = null;
+              if (item.genericName) {
+                catalogItem = pmbiItems.find(mi => mi.genericName?.toLowerCase() === item.genericName.toLowerCase());
+              }
+              if (!catalogItem && item.brandName) {
+                catalogItem = pmbiItems.find(mi => mi.genericName?.toLowerCase() === item.brandName.toLowerCase());
+              }
+              if (catalogItem) {
+                resolvedMed = {
+                  id: `catalog_${catalogItem.drugCode}`,
+                  drugCode: catalogItem.drugCode,
+                  genericName: catalogItem.genericName,
+                  brandName: catalogItem.genericName,
+                  form: catalogItem.unitSize || "Tablet",
+                  mrp: catalogItem.mrp || 0,
+                  purchasePrice: 0,
+                  sellingPrice: catalogItem.mrp || 0,
+                  companyName: "PMBI",
+                  category: "PMBI"
+                };
+              }
+            }
+
             const mVal = resolvedMed || {};
             return {
               drugCode: (mVal.drugCode || "TEMP").toUpperCase(),
@@ -320,6 +372,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               gstRate: parseFloat(item.gstRate) || parseFloat(mVal.gstRate) || 12,
               discount: parseFloat(item.discount) || 0,
               isH1Drug: !!mVal.isH1Drug,
+              form: mVal.form || "Tablet",
               catalogMatched: !!resolvedMed
             };
           });
@@ -424,16 +477,45 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
   // Auto-fill from selected PMBI medicine
   useEffect(() => {
     if (drugCode.length >= 2) {
-      const results = medicines.filter((m: any) => 
+      const medResults = medicines.filter((m: any) => 
         m.category === "PMBI" && 
         ((m.drugCode || "").toLowerCase().includes(drugCode.toLowerCase()) || 
          (m.genericName || "").toLowerCase().includes(drugCode.toLowerCase()))
       );
-      setDrugResults(results.slice(0, 5));
+
+      const catalogResults = Array.isArray(pmbiItems)
+        ? pmbiItems.filter((item: any) =>
+            (item.drugCode || "").toLowerCase().includes(drugCode.toLowerCase()) || 
+            (item.genericName || "").toLowerCase().includes(drugCode.toLowerCase())
+          ).map(item => ({
+            id: `catalog_${item.drugCode}`,
+            drugCode: item.drugCode,
+            genericName: item.genericName,
+            brandName: item.genericName,
+            mrp: item.mrp || 0,
+            sellingPrice: item.mrp || 0,
+            purchasePrice: 0,
+            gstRate: 12,
+            companyName: "PMBI",
+            category: "PMBI",
+            isH1Drug: false,
+            isCatalogOnly: true
+          }))
+        : [];
+
+      // Merge and deduplicate by drugCode
+      const merged = [...medResults];
+      catalogResults.forEach(cat => {
+        if (!merged.some(m => m.drugCode?.toLowerCase() === cat.drugCode?.toLowerCase())) {
+          merged.push(cat);
+        }
+      });
+
+      setDrugResults(merged.slice(0, 8));
     } else {
       setDrugResults([]);
     }
-  }, [drugCode, medicines]);
+  }, [drugCode, medicines, pmbiItems]);
 
   const handleSelectPmbiDrug = (med: any) => {
     setDrugCode(med.drugCode || "");
@@ -498,7 +580,10 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
       sgst,
       igst,
       totalAmount,
-      isH1Drug
+      isH1Drug,
+      form: (medicines.find(m => m.category === "PMBI" && m.drugCode?.toLowerCase() === drugCode.trim().toLowerCase()) ||
+             pmbiItems?.find(item => item.drugCode?.toLowerCase() === drugCode.trim().toLowerCase()))?.form || 
+            (pmbiItems?.find(item => item.drugCode?.toLowerCase() === drugCode.trim().toLowerCase()))?.unitSize || "Tablet"
     };
 
     setInvoiceItems(prev => [...prev, newItem]);
@@ -690,6 +775,7 @@ export default function PmbiPurchaseEntry({ db, storeId, storeCode, user, medici
               lowStockAlert: 20,
               gstRate: item.gstRate,
               isH1Drug: item.isH1Drug,
+              form: item.form || "Tablet",
               batches: [incomingBatch],
               lastDistributorId: distId,
               lastDistributorName: supplierName.trim(),
