@@ -7569,7 +7569,7 @@ Schema:
                     {!searchDrugSelected && <option value="">-- Batch --</option>}
                     {searchDrugSelected && (searchDrugSelected.batches || []).map(b => (
                       <option key={b.batchNumber} value={b.batchNumber}>
-                        {b.batchNumber} (Exp: {b.expiryDate})
+                        {b.batchNumber} (Exp: {b.expiryDate}) · ₹{((b.sellingPrice || b.mrp) || 0).toFixed(2)} · Qty: {b.quantity}
                       </option>
                     ))}
                   </select>
