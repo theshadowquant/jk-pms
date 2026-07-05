@@ -6602,6 +6602,7 @@ Schema:
     { id: "purchase",  label: "Purchases",  icon: "📦" },
     { id: "pmbi-purchase", label: "PMBI Purchase", icon: "📦" },
     { id: "pmbi-opening-stock", label: "PMBI Opening Stock", icon: "➕" },
+    { id: "pmbi-item-master", label: "PMBI Item Master", icon: "📋" },
     { id: "vendors",   label: "Vendors & Dues", icon: "👥" },
     { id: "reorders",  label: "Reorder Hub", icon: "🔄" },
     { id: "inventory", label: "Inventory", icon: "💊" },
@@ -6614,10 +6615,10 @@ Schema:
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
-  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
+  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
 
   // Enforce staff restrictions dynamically
-  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
+  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
     setActiveTab("billing");
   }
 
