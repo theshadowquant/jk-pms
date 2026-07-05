@@ -641,6 +641,7 @@ export default function PharmacyApp() {
     batchNumber: "", expiryDate: "", mrp: "", sellingPrice: "", purchasePrice: "",
     stockQty: "", lowStockAlert: "20", category: "", gstRate: "12"
   });
+  const [viewingMedDetails, setViewingMedDetails] = useState(null);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [viewingPurchase, setViewingPurchase] = useState(null); // purchase detail modal
   const [purchaseForm, setPurchaseForm] = useState({ supplierName: "", invoiceNumber: "", invoiceDate: "", paymentStatus: "Unpaid", items: [] });
@@ -1886,7 +1887,34 @@ export default function PharmacyApp() {
       const gst = parseFloat(m.gstRate) || 12;
       const buyPriceInclusive = buyPrice * (1 + gst / 100);
       const marginPct = retailPrice > 0 ? (((retailPrice - buyPriceInclusive) / retailPrice) * 100).toFixed(1) : null;
-      return { ...m, marginPct };
+      
+      const singleProfit = retailPrice - buyPriceInclusive;
+
+      let totalQtySold = 0;
+      let totalProfitSold = 0;
+      sales.forEach(sale => {
+        (sale.items || []).forEach(item => {
+          if (item.medicineId === m.id) {
+            const qty = item.quantity || 0;
+            totalQtySold += qty;
+            if (typeof item.profit === "number") {
+              totalProfitSold += item.profit;
+            } else {
+              const totalVal = typeof item.total === "number" ? item.total : (qty * (item.sellingPrice || item.mrp || 0));
+              const cogsVal = typeof item.cogs === "number" ? item.cogs : (qty * (item.purchasePrice || 0));
+              totalProfitSold += (totalVal - cogsVal);
+            }
+          }
+        });
+      });
+
+      return { 
+        ...m, 
+        marginPct, 
+        singleProfit, 
+        totalQtySold, 
+        totalProfitSold 
+      };
     });
   // Reorder suggestions: stock at or below threshold
   const reorderList = medicines.filter(m => m.stockQty <= (m.lowStockAlert || 20) && m.stockQty >= 0);
@@ -8843,9 +8871,9 @@ Schema:
             <div style={{ ...S.card,padding:0,overflow:"hidden" }}>
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%",borderCollapse:"collapse",minWidth:700 }}>
-                  <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Batch","Expiry","Printed MRP","Retail Price","Buy Price","Margin","Qty","Status","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <thead><tr style={{ background:"#F8FAFC" }}>{["Generic Name","Brand","Batch","Expiry","MRP","Retail Price","Buy Price","Margin","Profit (Pc)","Profit (Tot)","Qty","Status","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {filteredMeds.length===0?<tr><td colSpan={11} style={{ padding:24,textAlign:"center",color:C.text3,fontSize:13 }}>{medicines.length===0?"No medicines yet. Add your first medicine!":"No results."}</td></tr>
+                    {filteredMeds.length===0?<tr><td colSpan={13} style={{ padding:24,textAlign:"center",color:C.text3,fontSize:13 }}>{medicines.length===0?"No medicines yet. Add your first medicine!":"No results."}</td></tr>
                       :filteredMeds.map(m=>{
                         const isExp = isExpired(m);
                         const isLow = m.stockQty <= m.lowStockAlert;
@@ -8869,6 +8897,8 @@ Schema:
                             <td style={{ ...S.td,fontWeight:700,color:C.blue }}>₹{retailPrice}</td>
                             <td style={{ ...S.td,color:C.text2 }}>₹{buyPrice}</td>
                             <td style={{ ...S.td,fontWeight:700,color:margin !== null && margin >= 20 ? C.green : margin !== null && margin < 10 ? C.red : C.amber }}>{margin !== null ? `${margin}%` : "—"}</td>
+                            <td style={{ ...S.td,fontWeight:700,color:m.singleProfit > 0 ? C.green : C.red }}>₹{m.singleProfit?.toFixed(2) || "0.00"}</td>
+                            <td style={{ ...S.td,fontWeight:700,color:m.totalProfitSold > 0 ? C.blue : C.text3 }}>₹{m.totalProfitSold?.toFixed(2) || "0.00"}</td>
                             <td style={{ ...S.td,fontWeight:700,color:isLow?C.amber:C.green }}>{m.stockQty}</td>
                             <td style={S.td}><span style={S.badge(isExp?"red":isLow?"amber":"green")}>{isExp?"Expired":isLow?"Low":"OK"}</span></td>
                             <td style={S.td}>
@@ -8885,6 +8915,13 @@ Schema:
                                 title="Edit Medicine Details"
                               >
                                 ✏️ Edit
+                              </button>
+                              <button 
+                                onClick={() => setViewingMedDetails(m)} 
+                                style={{ background: "none", border: "none", color: C.green, cursor: "pointer", fontSize: 12, marginRight: 10, fontWeight: 700 }} 
+                                title="View Complete Dossier & Batches"
+                              >
+                                👁️ View
                               </button>
                               <button onClick={() => deleteMedicine(m.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 14 }} title="Delete Medicine">🗑️</button>
                             </td>
@@ -8969,6 +9006,156 @@ Schema:
                 </div>
               </div>
             )}
+
+            {/* View Medicine Dossier Details Modal */}
+            {viewingMedDetails && (() => {
+              const m = viewingMedDetails;
+              const firstBatch = Array.isArray(m.batches) && m.batches.length > 0 ? m.batches[0] : null;
+              const buyPrice = m.purchasePrice || firstBatch?.purchasePrice || 0;
+              const retailPrice = m.sellingPrice || m.mrp || 0;
+              const gst = parseFloat(m.gstRate) || 12;
+              const buyPriceInclusive = buyPrice * (1 + gst / 100);
+              const singleProfit = retailPrice - buyPriceInclusive;
+
+              const calculatedMed = filteredMeds.find(fm => fm.id === m.id) || m;
+              
+              return (
+                <div style={{
+                  position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.4)",
+                  backdropFilter: "blur(4px)", zIndex: 9999, display: "flex",
+                  alignItems: "center", justifyContent: "center", padding: 20
+                }}>
+                  <div style={{
+                    background: "#fff", border: `1px solid ${C.border}`, borderRadius: 16,
+                    width: "100%", maxWidth: 750, maxHeight: "90vh", overflowY: "auto",
+                    boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)"
+                  }}>
+                    <div style={{
+                      padding: "20px 24px", borderBottom: `1px solid ${C.border}`,
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      background: C.navy, color: "#fff", borderTopLeftRadius: 15, borderTopRightRadius: 15
+                    }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>👁️ Medicine Complete Dossier</h3>
+                        <span style={{ fontSize: 12, opacity: 0.8 }}>Full audit and batch details for local inventory.</span>
+                      </div>
+                      <button
+                        onClick={() => setViewingMedDetails(null)}
+                        style={{
+                          background: "none", border: "none", color: "#fff",
+                          fontSize: 24, cursor: "pointer", opacity: 0.8
+                        }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+
+                    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+                        <div style={{ background: "#F8FAFC", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: C.text3, textTransform: "uppercase" }}>Generic Name</span>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginTop: 4 }}>{m.genericName}</div>
+                        </div>
+                        <div style={{ background: "#F8FAFC", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: C.text3, textTransform: "uppercase" }}>Brand / Trade Name</span>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, marginTop: 4 }}>{m.brandName || "—"}</div>
+                        </div>
+                        <div style={{ background: "#F8FAFC", padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: C.text3, textTransform: "uppercase" }}>Metadata</span>
+                          <div style={{ fontSize: 12, color: C.text2, marginTop: 4 }}>
+                            Strength: <strong>{m.strength || "—"}</strong> | Form: <strong>{m.form || "—"}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 style={{ margin: "0 0 10px 0", fontSize: 13, fontWeight: 800, color: C.navy, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          💰 Profitability & Margin Metrics
+                        </h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.text3 }}>PRINTED MRP</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginTop: 4 }}>₹{m.mrp.toFixed(2)}</div>
+                          </div>
+                          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.text3 }}>RETAIL PRICE</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, marginTop: 4 }}>₹{retailPrice.toFixed(2)}</div>
+                          </div>
+                          <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, textAlign: "center" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.text3 }}>BUY (INC. GST)</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: C.text2, marginTop: 4 }}>₹{buyPriceInclusive.toFixed(2)}</div>
+                          </div>
+                          <div style={{ border: `1.5px solid ${C.teal2}`, borderRadius: 8, padding: 12, textAlign: "center", background: "#E8F5EE" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.green }}>PROFIT / UNIT</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: C.green, marginTop: 4 }}>₹{singleProfit.toFixed(2)}</div>
+                            <div style={{ fontSize: 9, color: C.text3, marginTop: 2 }}>Margin: {calculatedMed.marginPct}%</div>
+                          </div>
+                          <div style={{ border: `1.5px solid ${C.blue}`, borderRadius: 8, padding: 12, textAlign: "center", background: "#EBF4FF" }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: C.blue }}>TOTAL PROFIT SOLD</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: C.blue, marginTop: 4 }}>₹{calculatedMed.totalProfitSold.toFixed(2)}</div>
+                            <div style={{ fontSize: 9, color: C.text3, marginTop: 2 }}>Sold: {calculatedMed.totalQtySold} units</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 style={{ margin: "0 0 10px 0", fontSize: 13, fontWeight: 800, color: C.navy, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          📦 Active Batches Inventory ({Array.isArray(m.batches) ? m.batches.length : 0})
+                        </h4>
+                        <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ background: "#F8FAFC" }}>
+                                <th style={{ ...S.th, padding: "8px 12px" }}>Batch Number</th>
+                                <th style={{ ...S.th, padding: "8px 12px" }}>Expiry Date</th>
+                                <th style={{ ...S.th, padding: "8px 12px", textAlign: "right" }}>MRP</th>
+                                <th style={{ ...S.th, padding: "8px 12px", textAlign: "right" }}>Selling Price</th>
+                                <th style={{ ...S.th, padding: "8px 12px", textAlign: "right" }}>Purchase Price</th>
+                                <th style={{ ...S.th, padding: "8px 12px", textAlign: "center" }}>Stock Qty</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {!Array.isArray(m.batches) || m.batches.length === 0 ? (
+                                <tr>
+                                  <td colSpan={6} style={{ padding: 16, textAlign: "center", color: C.text3, fontStyle: "italic" }}>
+                                    No batches exist for this medicine catalog entry.
+                                  </td>
+                                </tr>
+                              ) : (
+                                m.batches.map((b, bi) => (
+                                  <tr key={bi} style={{ borderBottom: bi < m.batches.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                                    <td style={{ ...S.td, padding: "8px 12px", fontFamily: "monospace" }}>{b.batchNumber}</td>
+                                    <td style={{ ...S.td, padding: "8px 12px" }}>{b.expiryDate}</td>
+                                    <td style={{ ...S.td, padding: "8px 12px", textAlign: "right" }}>₹{b.mrp?.toFixed(2)}</td>
+                                    <td style={{ ...S.td, padding: "8px 12px", textAlign: "right" }}>₹{(b.sellingPrice || b.mrp)?.toFixed(2)}</td>
+                                    <td style={{ ...S.td, padding: "8px 12px", textAlign: "right" }}>₹{b.purchasePrice?.toFixed(2)}</td>
+                                    <td style={{ ...S.td, padding: "8px 12px", textAlign: "center", fontWeight: 700, color: b.quantity > 0 ? C.green : C.red }}>{b.quantity}</td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <div style={{
+                      padding: "16px 24px", borderTop: `1px solid ${C.border}`,
+                      display: "flex", justifyContent: "flex-end", background: "#F8FAFC",
+                      borderBottomLeftRadius: 15, borderBottomRightRadius: 15
+                    }}>
+                      <button
+                        onClick={() => setViewingMedDetails(null)}
+                        style={{ ...S.btn("primary"), padding: "8px 20px" }}
+                      >
+                        Close Dossier
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
           </div>
         )}
