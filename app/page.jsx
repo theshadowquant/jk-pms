@@ -309,7 +309,7 @@ const C = {
 const S = {
   topbar: { background: "#ffffff", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", flexShrink: 0, borderBottom: `1px solid ${C.border}` },
   logoMark: { width: 38, height: 38, borderRadius: 9, background: C.teal2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 },
-  main: { flex: 1, padding: "24px", overflowX: "hidden", background: C.bg, overflowY: "auto", minHeight: 0 },
+  main: { height: "calc(100vh - 60px)", padding: "24px", overflowX: "hidden", background: C.bg, overflowY: "auto" },
   card: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
   input: { fontFamily: "inherit", fontSize: 13, border: `1.5px solid ${C.border2}`, borderRadius: 8, padding: "9px 12px", background: "#fff", color: C.text, outline: "none", width: "100%", transition: "border-color 0.15s ease" },
   label: { display: "block", fontSize: 11, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 },
