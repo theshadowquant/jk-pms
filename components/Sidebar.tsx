@@ -231,7 +231,7 @@ const NAV_GROUPS: NavGroup[] = [
 const getTabGroup = (tab: string) => {
   if (["billing"].includes(tab)) return "sale";
   if (["purchase", "reorders", "pmbi-purchase"].includes(tab)) return "purchase";
-  if (["vendors", "inventory", "pmbi-opening-stock"].includes(tab)) return "master";
+  if (["vendors", "inventory", "pmbi-opening-stock", "pmbi-item-master"].includes(tab)) return "master";
   if (["reports", "pmbi-reports", "h1-tracking", "analytics"].includes(tab)) return "report";
   if (["settings"].includes(tab)) return "utilities";
   if (["bills"].includes(tab)) return "accounting";
