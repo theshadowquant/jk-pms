@@ -9,6 +9,7 @@ import PmbiReports from "@/components/PmbiReports";
 import H1DrugTracking from "@/components/H1DrugTracking";
 import StockInventoryReport from "@/components/StockInventoryReport";
 import Analytics from "@/components/Analytics";
+import PatientDuesLedger from "@/components/PatientDuesLedger";
 import { auth, db } from "@/lib/firebase";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, where, limit, getDocs, getDoc, setDoc, runTransaction } from "firebase/firestore";
@@ -212,12 +213,18 @@ async function printThermalReceipt(bill, storeDetails) {
     console.warn("QR fetch failed for thermal receipt:", e);
   }
 
+  const billAmtPaid = bill.amountPaid !== undefined ? bill.amountPaid : (bill.grandTotal || 0);
+  const billPendingDue = bill.pendingDue || 0;
+  const billOverdue = bill.overdueAmount || 0;
+
   const qrSection = qrBase64
     ? `<div class="c" style="margin:8px 0 4px">
         <div style="font-size:9px;font-weight:bold;margin-bottom:4px">⬇ Scan &amp; Pay via UPI</div>
         <img src="${qrBase64}" width="100" height="100" style="display:block;margin:0 auto;border:1px solid #ccc"/>
         <div style="font-size:8px;margin-top:3px;color:#333">${upiId}</div>
-        <div style="font-size:8px;color:#555">Amount: Rs.${(bill.grandTotal || 0).toFixed(2)}</div>
+        <div style="font-size:8.5px;font-weight:bold;margin-top:4px;color:#000">Total Bill: Rs.${(bill.grandTotal || 0).toFixed(2)}</div>
+        <div style="font-size:8px;color:#555">Paid: Rs.${billAmtPaid.toFixed(2)} | Pending: Rs.${billPendingDue.toFixed(2)}</div>
+        ${billOverdue > 0 ? `<div style="font-size:8px;color:#C0392B;font-weight:bold">Overdue: Rs.${billOverdue.toFixed(2)}</div>` : ""}
        </div>`
     : `<div class="c" style="font-size:8px;margin:6px 0">Pay via UPI: ${upiId}</div>`;
 
@@ -429,6 +436,16 @@ export default function PharmacyApp() {
   const [suppliers, setSuppliers] = useState([]);
   const [dbLoading, setDbLoading] = useState(false);
   const [now, setNow] = useState(new Date());
+  const [patients, setPatients] = useState([]);
+  const [directBillMode, setDirectBillMode] = useState(false);
+  const [directItemName, setDirectItemName] = useState("");
+  const [directBatchNumber, setDirectBatchNumber] = useState("");
+  const [directQty, setDirectQty] = useState("1");
+  const [directRate, setDirectRate] = useState("");
+  const [directDiscount, setDirectDiscount] = useState("0");
+  const [directGstRate, setDirectGstRate] = useState("12");
+  const [directExpiry, setDirectExpiry] = useState("");
+  const [directForm, setDirectForm] = useState("Tablet");
 
   const handleSignOut = () => {
     if (typeof window !== "undefined") {
@@ -948,6 +965,65 @@ export default function PharmacyApp() {
     }, 50);
   };
 
+  const addDirectItemToBill = () => {
+    if (!directItemName.trim()) {
+      alert("Please enter Item Name.");
+      return;
+    }
+    const qty = parseInt(directQty);
+    if (isNaN(qty) || qty <= 0) {
+      alert("Please enter a valid quantity.");
+      return;
+    }
+    const rate = parseFloat(directRate);
+    if (isNaN(rate) || rate < 0) {
+      alert("Please enter a valid rate.");
+      return;
+    }
+    const discount = parseFloat(directDiscount) || 0;
+    const gstRate = parseFloat(directGstRate) || 12;
+
+    let expDate = directExpiry.trim();
+    if (!expDate) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() + 1);
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const y = d.getFullYear();
+      expDate = `${y}-${m}`;
+    }
+
+    const newItem = {
+      id: "direct-" + Date.now(),
+      genericName: directItemName.trim(),
+      brandName: directItemName.trim(),
+      isTemporary: true,
+      isDirectBill: true,
+      requiresInventoryMapping: false,
+      qty: qty,
+      mrp: rate,
+      sellingPrice: rate,
+      discount: discount,
+      gstRate: gstRate,
+      selectedBatchNumber: directBatchNumber.trim() || "DIRECT",
+      expiryDate: expDate,
+      form: directForm,
+      location: "DIRECT"
+    };
+
+    setBillItems(prev => [...prev, newItem]);
+    
+    setDirectItemName("");
+    setDirectBatchNumber("");
+    setDirectQty("1");
+    setDirectRate("");
+    setDirectDiscount("0");
+    setDirectGstRate("12");
+    setDirectExpiry("");
+    setDirectForm("Tablet");
+    
+    playBeep(1000, 0.04);
+  };
+
   const addDemandedDrugToBill = () => {
     if (!billSearch.trim()) {
       alert("Please enter a drug name in the search box.");
@@ -1092,6 +1168,15 @@ export default function PharmacyApp() {
       }
     }
   };
+
+  const activePatient = customerPhone ? patients.find(p => p.phone.trim() === customerPhone.trim()) : null;
+
+  useEffect(() => {
+    if (activePatient) {
+      if (!customerName) setCustomerName(activePatient.name);
+      if (!customerEmail && activePatient.email) setCustomerEmail(activePatient.email);
+    }
+  }, [activePatient, customerName, customerEmail]);
 
   // ── LOCAL STORAGE TAB AND DRAFT PERSISTENCE ──────────────────
   const [isClient, setIsClient] = useState(false);
@@ -1282,6 +1367,7 @@ export default function PharmacyApp() {
     const qPurch = query(collection(db, "purchases"), where("storeId", "==", storeId));
     const qSups = query(collection(db, "suppliers"), where("storeId", "==", storeId));
     const qPmbiItems = query(collection(db, "pmbi_items"), where("storeId", "==", storeId));
+    const qPatients = query(collection(db, "patients"), where("storeId", "==", storeId));
 
     const handleIndexError = (err, collectionName) => {
       console.error(`Firestore index required for ${collectionName}:`, err);
@@ -1379,7 +1465,13 @@ export default function PharmacyApp() {
       setPmbiItems(items);
     }, err => console.error("PMBI Items catalog listen error", err));
 
-    return () => { u1(); u2(); u3(); u4(); uTemplates(); uSessions(); uSalesImportSessions(); uDoctors(); uPmbiItems(); };
+    const uPatients = onSnapshot(qPatients, snap => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setPatients(items);
+    }, err => handleIndexError(err, "patients"));
+
+    return () => { u1(); u2(); u3(); u4(); uTemplates(); uSessions(); uSalesImportSessions(); uDoctors(); uPmbiItems(); uPatients(); };
   }, [user, storeId]);
 
   // Backfill legacy sales imports into sales_import_sessions
@@ -2618,6 +2710,21 @@ Schema:
     const billNumber = activeInvoiceNo || `JK-${now.getFullYear()}-${String(sales.length + 1).padStart(4, "0")}`;
     const currentMonthStr = new Date().toISOString().substring(0, 7); // "YYYY-MM"
 
+    let patientDocId = null;
+    let patientExistingData = null;
+    if (customerPhone) {
+      try {
+        const patientQuery = query(collection(db, "patients"), where("storeId", "==", storeId), where("phone", "==", customerPhone));
+        const patientSnaps = await getDocs(patientQuery);
+        if (!patientSnaps.empty) {
+          patientDocId = patientSnaps.docs[0].id;
+          patientExistingData = patientSnaps.docs[0].data();
+        }
+      } catch (err) {
+        console.warn("Failed to lookup patient by phone:", err);
+      }
+    }
+
     try {
       await runTransaction(db, async (transaction) => {
         const finalizedItems = [];
@@ -2784,7 +2891,7 @@ Schema:
             cogs: itemCogs,
             profit: itemProfit,
             isTemporary: true,
-            requiresInventoryMapping: true,
+            requiresInventoryMapping: item.requiresInventoryMapping !== undefined ? item.requiresInventoryMapping : true,
             batchNumber: item.selectedBatchNumber || "TEMP-001",
             expiryDate: item.expiryDate || "2028-12",
             batchesUsed: [{
@@ -2797,6 +2904,46 @@ Schema:
           });
         }
 
+        const cashAmt = parseFloat(splitCash) || 0;
+        const ccAmt = parseFloat(splitCreditCard) || 0;
+        const dcAmt = parseFloat(splitDebitCard) || 0;
+        const wpAmt = parseFloat(splitWalletPay) || 0;
+        const totalPaidAmt = cashAmt + ccAmt + dcAmt + wpAmt;
+        const netBillAmt = roundPaisa(grandSum);
+        const calculatedPendingDue = Math.max(0, netBillAmt - totalPaidAmt);
+
+        let finalOverdue = 0;
+        if (customerPhone) {
+          if (patientDocId) {
+            const pRef = doc(db, "patients", patientDocId);
+            const pSnap = await transaction.get(pRef);
+            if (pSnap.exists()) {
+              const pData = pSnap.data();
+              finalOverdue = pData.overdueAmount || 0;
+              transaction.update(pRef, {
+                outstandingDue: (pData.outstandingDue || 0) + calculatedPendingDue,
+                name: customerName || pData.name || "Walk-in Patient",
+                email: customerEmail || pData.email || "",
+                updatedAt: serverTimestamp()
+              });
+            }
+          } else {
+            const pRef = doc(collection(db, "patients"));
+            transaction.set(pRef, {
+              storeId,
+              storeCode,
+              name: customerName || "Walk-in Patient",
+              phone: customerPhone,
+              email: customerEmail || "",
+              outstandingDue: calculatedPendingDue,
+              overdueAmount: 0,
+              createdAt: serverTimestamp(),
+              createdBy: user.uid,
+              updatedAt: serverTimestamp()
+            });
+          }
+        }
+
         // Create Sale Document
         const salesColRef = collection(db, "sales");
         const saleDocRef = doc(salesColRef);
@@ -2805,11 +2952,16 @@ Schema:
         const billData = {
           storeId,
           storeCode,
+          storeName: storeDetails?.name || storeName || "JANAUSHADHI KENDRA",
+          storeUpiId: storeDetails?.upiId || "7676309842@jupiteraxis",
           billNumber,
           customerName: customerName || "Walk-in Patient",
           customerPhone: customerPhone || "",
           customerEmail: customerEmail || "",
           items: finalizedItems,
+          amountPaid: totalPaidAmt,
+          pendingDue: calculatedPendingDue,
+          overdueAmount: finalOverdue,
           subtotal: subtotalSum,
           totalDiscount: discountSum,
           taxableAmount: taxableSum,
@@ -5065,7 +5217,9 @@ Schema:
       // Fetch and convert UPI QR Code to Base64 dynamically
       let qrCodeBase64 = "";
       try {
-        const upiData = `upi://pay?pa=7676309842@jupiteraxis&pn=Pradhan%20Mantri%20Bharatiya%20Janaushadhi%20Kendra&am=${(bill.grandTotal || 0).toFixed(2)}&cu=INR`;
+        const upiId = storeDetails?.upiId || "7676309842@jupiteraxis";
+        const payeeName = encodeURIComponent(storeDetails?.name || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
+        const upiData = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${(bill.grandTotal || 0).toFixed(2)}&cu=INR`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiData)}`;
         const qrRes = await fetch(qrUrl);
         if (qrRes.ok) {
@@ -6604,6 +6758,7 @@ Schema:
     { id: "pmbi-opening-stock", label: "PMBI Opening Stock", icon: "➕" },
     { id: "pmbi-item-master", label: "PMBI Item Master", icon: "📋" },
     { id: "vendors",   label: "Vendors & Dues", icon: "👥" },
+    { id: "customers", label: "Patients & Dues", icon: "👥" },
     { id: "reorders",  label: "Reorder Hub", icon: "🔄" },
     { id: "inventory", label: "Inventory", icon: "💊" },
     { id: "bills",     label: "Bills History", icon: "🧾" },
@@ -6615,10 +6770,10 @@ Schema:
     { id: "settings",  label: "Store Settings", icon: "⚙️" },
   ];
 
-  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(t.id));
+  const allowedTabs = TABS.filter(t => userRole === "admin" || ["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "customers", "inventory", "alerts", "analytics"].includes(t.id));
 
   // Enforce staff restrictions dynamically
-  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "inventory", "alerts", "analytics"].includes(activeTab)) {
+  if (userRole === "staff" && !["dashboard", "billing", "bills", "purchase", "pmbi-purchase", "pmbi-opening-stock", "pmbi-item-master", "pmbi-reports", "reports", "h1-tracking", "reorders", "vendors", "customers", "inventory", "alerts", "analytics"].includes(activeTab)) {
     setActiveTab("billing");
   }
 
@@ -7404,16 +7559,46 @@ Schema:
                   </select>
                 </div>
                 <div>
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Gst No:</label>
+                  <input style={S.input} value={gstNo} onChange={e => setGstNo(e.target.value)} placeholder="GSTIN (Optional)" />
+                </div>
+                {activePatient && (
+                  <div style={{
+                    gridColumn: "1 / -1",
+                    background: (activePatient.outstandingDue > 0 || activePatient.overdueAmount > 0) ? "#FDECEA" : "#E8F5EE",
+                    border: `1.5px solid ${(activePatient.outstandingDue > 0 || activePatient.overdueAmount > 0) ? C.red : C.green}`,
+                    borderRadius: 10,
+                    padding: "10px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: 12.5,
+                    marginTop: 4,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.03)"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>👤</span>
+                      <div>
+                        <strong>Existing Patient credit profile:</strong> <span style={{ color: C.navy, fontWeight: 700 }}>{activePatient.name}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 20 }}>
+                      <div>
+                        Outstanding balance: <strong style={{ color: activePatient.outstandingDue > 0 ? C.red : C.green }}>₹{(activePatient.outstandingDue || 0).toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        Overdue balance: <strong style={{ color: activePatient.overdueAmount > 0 ? C.red : C.text2 }}>₹{(activePatient.overdueAmount || 0).toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Email Id:</label>
                   <input style={S.input} value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="patient@email.com" />
                 </div>
                 <div>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Patient Name:</label>
                   <input style={{ ...S.input, borderColor: C.border2 }} value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Patient Name" />
-                </div>
-                <div>
-                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Gst No:</label>
-                  <input style={S.input} value={gstNo} onChange={e => setGstNo(e.target.value)} placeholder="GSTIN (Optional)" />
                 </div>
                 <div style={{ gridColumn: "span 2" }}>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Doctor/CRNo:</label>
@@ -7465,6 +7650,30 @@ Schema:
               </div>
             </div>
 
+            {/* Direct Billing Mode Selector */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button 
+                onClick={() => setDirectBillMode(false)} 
+                style={{
+                  ...S.btn(directBillMode ? "outline" : "primary"),
+                  padding: "6px 12px",
+                  fontSize: 12
+                }}
+              >
+                📦 Catalog Inventory Search
+              </button>
+              <button 
+                onClick={() => setDirectBillMode(true)} 
+                style={{
+                  ...S.btn(directBillMode ? "primary" : "outline"),
+                  padding: "6px 12px",
+                  fontSize: 12
+                }}
+              >
+                ✍️ Direct Billing (Manual Entry)
+              </button>
+            </div>
+
             {/* ── SEARCH DRUG ROW PANEL ── */}
             <div style={{ 
               background: "#F1F5F9", 
@@ -7475,10 +7684,11 @@ Schema:
               boxShadow: "0 1px 3px rgba(0,0,0,0.02)"
             }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: C.text3, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                🔍 Search Drug
+                {directBillMode ? "✍️ Direct Manual Billing Entry" : "🔍 Search Drug"}
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end" }}>
+              {!directBillMode ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end" }}>
                 
                 {/* Drug Search */}
                 <div style={{ flex: "2 1 240px", position: "relative" }}>
@@ -7698,8 +7908,126 @@ Schema:
                     ⚠ Add Demanded Drug
                   </button>
                 </div>
-
               </div>
+            ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end", width: "100%" }}>
+                  {/* Item Name */}
+                  <div style={{ flex: "2 1 200px" }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Item Name *</label>
+                    <input
+                      style={S.input}
+                      value={directItemName}
+                      onChange={e => setDirectItemName(e.target.value)}
+                      placeholder="e.g. Paracetamol 650mg"
+                    />
+                  </div>
+
+                  {/* Batch No */}
+                  <div style={{ width: 110 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Batch No</label>
+                    <input
+                      style={S.input}
+                      value={directBatchNumber}
+                      onChange={e => setDirectBatchNumber(e.target.value)}
+                      placeholder="e.g. BAT-99"
+                    />
+                  </div>
+
+                  {/* Qty */}
+                  <div style={{ width: 65 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Qty *</label>
+                    <input
+                      type="number"
+                      style={S.input}
+                      value={directQty}
+                      onChange={e => setDirectQty(e.target.value)}
+                      placeholder="Qty"
+                    />
+                  </div>
+
+                  {/* Rate */}
+                  <div style={{ width: 90 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Rate (₹) *</label>
+                    <input
+                      type="number"
+                      style={S.input}
+                      value={directRate}
+                      onChange={e => setDirectRate(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  {/* Discount */}
+                  <div style={{ width: 75 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Disc. (%)</label>
+                    <input
+                      type="number"
+                      style={S.input}
+                      value={directDiscount}
+                      onChange={e => setDirectDiscount(e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+
+                  {/* GST */}
+                  <div style={{ width: 85 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>GST (%)</label>
+                    <select
+                      style={S.input}
+                      value={directGstRate}
+                      onChange={e => setDirectGstRate(e.target.value)}
+                    >
+                      <option value="0">0%</option>
+                      <option value="5">5%</option>
+                      <option value="12">12%</option>
+                      <option value="18">18%</option>
+                      <option value="28">28%</option>
+                    </select>
+                  </div>
+
+                  {/* Expiry */}
+                  <div style={{ width: 100 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Expiry (MM/YY)</label>
+                    <input
+                      style={S.input}
+                      value={directExpiry}
+                      onChange={e => setDirectExpiry(e.target.value)}
+                      placeholder="e.g. 12/28"
+                    />
+                  </div>
+
+                  {/* Form */}
+                  <div style={{ width: 95 }}>
+                    <label style={{ ...S.label, fontSize: 10 }}>Pack / Form</label>
+                    <select
+                      style={S.input}
+                      value={directForm}
+                      onChange={e => setDirectForm(e.target.value)}
+                    >
+                      <option value="Tablet">Tablet</option>
+                      <option value="Capsule">Capsule</option>
+                      <option value="Syrup">Syrup</option>
+                      <option value="Suspension">Suspension</option>
+                      <option value="Injection">Injection</option>
+                      <option value="Ointment">Ointment</option>
+                      <option value="Gel">Gel</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  {/* Button */}
+                  <div style={{ marginLeft: "auto" }}>
+                    <button
+                      onClick={addDirectItemToBill}
+                      style={{ ...S.btn("teal"), padding: "9px 18px", fontSize: 12, fontWeight: 700 }}
+                      disabled={!directItemName.trim() || !directRate}
+                    >
+                      ✚ Add Direct Item
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
 
             {/* ── SALES INVOICE DETAIL TABLE ── */}
@@ -11092,6 +11420,18 @@ Schema:
               </div>
             </div>
           </div>
+        )}
+
+        {/* PATIENTS LEDGER */}
+        {!dbLoading && activeTab === "customers" && (
+          <PatientDuesLedger
+            db={db}
+            storeId={storeId}
+            storeCode={storeCode}
+            user={user}
+            patients={patients}
+            storeDetails={storeDetails}
+          />
         )}
 
         {/* REORDERS */}

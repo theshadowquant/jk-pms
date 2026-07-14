@@ -192,7 +192,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: "crm",
     icon: Users,
     items: [
-      { label: "Customers", id: "crm-customers", icon: Users, action: "navigate", target: "/vendors" },
+      { label: "Customers", id: "crm-customers", icon: Users, action: "navigate", target: "/customers" },
       { label: "Suppliers", id: "crm-suppliers", icon: Truck, action: "navigate", target: "/vendors" },
       { label: "Doctors", id: "crm-doctors", icon: Stethoscope, action: "navigate", target: "/vendors" },
     ],
@@ -235,6 +235,7 @@ const getTabGroup = (tab: string) => {
   if (["reports", "pmbi-reports", "h1-tracking", "analytics"].includes(tab)) return "report";
   if (["settings"].includes(tab)) return "utilities";
   if (["bills"].includes(tab)) return "accounting";
+  if (["customers"].includes(tab)) return "crm";
   return null;
 };
 

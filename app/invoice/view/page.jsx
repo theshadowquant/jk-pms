@@ -150,7 +150,9 @@ function InvoiceViewerContent() {
   const roundedGrandTotal = bill.grandTotal || roundPaisa(totalFinalAmt);
   const roundOffAmount = typeof bill.roundOff === "number" ? bill.roundOff : (roundedGrandTotal - totalFinalAmt);
 
-  const upiPayUri = `upi://pay?pa=7676309842@jupiteraxis&pn=Pradhan%20Mantri%20Bharatiya%20Janaushadhi%20Kendra&am=${roundedGrandTotal.toFixed(2)}&cu=INR`;
+  const storeUpiId = bill.storeUpiId || "7676309842@jupiteraxis";
+  const storePayeeName = encodeURIComponent(bill.storeName || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
+  const upiPayUri = `upi://pay?pa=${storeUpiId}&pn=${storePayeeName}&am=${roundedGrandTotal.toFixed(2)}&cu=INR`;
   const upiQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiPayUri)}`;
 
   return (
@@ -306,7 +308,29 @@ function InvoiceViewerContent() {
             <div style={{ fontWeight: 700, fontSize: 12, color: "#0D7377" }}>Scan to pay via UPI</div>
             <div style={{ fontSize: 10, color: "#8A96A3", margin: "2px 0 6px 0" }}>Maximum of 1 lakh can be transferred via upi in a single day</div>
             <img src={upiQrSrc} alt="UPI Payment QR Code" style={styles.qrImg} />
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#0A2342", marginTop: 4 }}>7676309842@jupiteraxis</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#0A2342", marginTop: 4, marginBottom: 8 }}>{storeUpiId}</div>
+            
+            {/* Payment Dues Breakdown */}
+            <div style={{ borderTop: "1px dashed #ccc", paddingTop: 8, fontSize: 11, color: "#4A5568", textAlign: "left", width: "100%", maxWidth: 220, margin: "0 auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+                <span>Total Bill Amount:</span>
+                <strong>₹{roundedGrandTotal.toFixed(2)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 3 }}>
+                <span>Amount Paid:</span>
+                <strong style={{ color: "#2E7D32" }}>₹{(bill.amountPaid !== undefined ? bill.amountPaid : roundedGrandTotal).toFixed(2)}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 3 }}>
+                <span>Pending Due Amount:</span>
+                <strong style={{ color: (bill.pendingDue || 0) > 0 ? "#C62828" : "#2E7D32" }}>₹{(bill.pendingDue || 0).toFixed(2)}</strong>
+              </div>
+              {(bill.overdueAmount || 0) > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 3, color: "#C62828" }}>
+                  <span>Overdue Dues:</span>
+                  <strong>₹{(bill.overdueAmount || 0).toFixed(2)}</strong>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
