@@ -194,10 +194,15 @@ async function printThermalReceipt(bill, storeDetails) {
   const upiId  = storeDetails?.upiId       || "7676309842@jupiteraxis";
   const payeeName = encodeURIComponent(storeDetails?.name || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
 
+  const billAmtPaid = bill.amountPaid !== undefined ? bill.amountPaid : (bill.grandTotal || 0);
+  const billPendingDue = bill.pendingDue || 0;
+  const billOverdue = bill.overdueAmount || 0;
+  const scanTotal = (bill.grandTotal || 0) + billOverdue;
+
   // ── Fetch UPI QR as Base64 ──────────────────────────────
   let qrBase64 = "";
   try {
-    const upiData  = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${(bill.grandTotal || 0).toFixed(2)}&cu=INR`;
+    const upiData  = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${scanTotal.toFixed(2)}&cu=INR`;
     const qrUrl    = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(upiData)}`;
     const qrRes    = await fetch(qrUrl);
     if (qrRes.ok) {
@@ -213,10 +218,6 @@ async function printThermalReceipt(bill, storeDetails) {
     console.warn("QR fetch failed for thermal receipt:", e);
   }
 
-  const billAmtPaid = bill.amountPaid !== undefined ? bill.amountPaid : (bill.grandTotal || 0);
-  const billPendingDue = bill.pendingDue || 0;
-  const billOverdue = bill.overdueAmount || 0;
-
   const qrSection = qrBase64
     ? `<div class="c" style="margin:8px 0 4px">
         <div style="font-size:9px;font-weight:bold;margin-bottom:4px">⬇ Scan &amp; Pay via UPI</div>
@@ -225,6 +226,7 @@ async function printThermalReceipt(bill, storeDetails) {
         <div style="font-size:8.5px;font-weight:bold;margin-top:4px;color:#000">Total Bill: Rs.${(bill.grandTotal || 0).toFixed(2)}</div>
         <div style="font-size:8px;color:#555">Paid: Rs.${billAmtPaid.toFixed(2)} | Pending: Rs.${billPendingDue.toFixed(2)}</div>
         ${billOverdue > 0 ? `<div style="font-size:8px;color:#C0392B;font-weight:bold">Overdue: Rs.${billOverdue.toFixed(2)}</div>` : ""}
+        <div style="font-size:9.5px;font-weight:bold;margin-top:4px;color:#2E7D32">Scan &amp; Pay Total: Rs.${scanTotal.toFixed(2)}</div>
        </div>`
     : `<div class="c" style="font-size:8px;margin:6px 0">Pay via UPI: ${upiId}</div>`;
 
@@ -446,6 +448,8 @@ export default function PharmacyApp() {
   const [directGstRate, setDirectGstRate] = useState("12");
   const [directExpiry, setDirectExpiry] = useState("");
   const [directForm, setDirectForm] = useState("Tablet");
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [oldDuesAmount, setOldDuesAmount] = useState("");
 
   const handleSignOut = () => {
     if (typeof window !== "undefined") {
@@ -820,6 +824,8 @@ export default function PharmacyApp() {
     setGstNo("");
     setCreditBill(false);
     setFindInvoiceNo("");
+    setAdditionalNotes("");
+    setOldDuesAmount("");
 
     // Clear Search row
     setBillSearch("");
@@ -2912,6 +2918,7 @@ Schema:
         const netBillAmt = roundPaisa(grandSum);
         const calculatedPendingDue = Math.max(0, netBillAmt - totalPaidAmt);
 
+        const extraOldDues = parseFloat(oldDuesAmount) || 0;
         let finalOverdue = 0;
         if (customerPhone) {
           if (patientDocId) {
@@ -2919,9 +2926,10 @@ Schema:
             const pSnap = await transaction.get(pRef);
             if (pSnap.exists()) {
               const pData = pSnap.data();
-              finalOverdue = pData.overdueAmount || 0;
+              finalOverdue = (pData.overdueAmount || 0) + extraOldDues;
               transaction.update(pRef, {
-                outstandingDue: (pData.outstandingDue || 0) + calculatedPendingDue,
+                outstandingDue: (pData.outstandingDue || 0) + calculatedPendingDue + extraOldDues,
+                overdueAmount: finalOverdue,
                 name: customerName || pData.name || "Walk-in Patient",
                 email: customerEmail || pData.email || "",
                 updatedAt: serverTimestamp()
@@ -2929,14 +2937,15 @@ Schema:
             }
           } else {
             const pRef = doc(collection(db, "patients"));
+            finalOverdue = extraOldDues;
             transaction.set(pRef, {
               storeId,
               storeCode,
               name: customerName || "Walk-in Patient",
               phone: customerPhone,
               email: customerEmail || "",
-              outstandingDue: calculatedPendingDue,
-              overdueAmount: 0,
+              outstandingDue: calculatedPendingDue + extraOldDues,
+              overdueAmount: extraOldDues,
               createdAt: serverTimestamp(),
               createdBy: user.uid,
               updatedAt: serverTimestamp()
@@ -2959,6 +2968,8 @@ Schema:
           customerPhone: customerPhone || "",
           customerEmail: customerEmail || "",
           items: finalizedItems,
+          additionalNotes: additionalNotes || "",
+          oldDuesAmount: parseFloat(oldDuesAmount) || 0,
           amountPaid: totalPaidAmt,
           pendingDue: calculatedPendingDue,
           overdueAmount: finalOverdue,
@@ -5219,7 +5230,9 @@ Schema:
       try {
         const upiId = storeDetails?.upiId || "7676309842@jupiteraxis";
         const payeeName = encodeURIComponent(storeDetails?.name || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
-        const upiData = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${(bill.grandTotal || 0).toFixed(2)}&cu=INR`;
+        const billOverdue = bill.overdueAmount || 0;
+        const scanTotal = (bill.grandTotal || 0) + billOverdue;
+        const upiData = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${scanTotal.toFixed(2)}&cu=INR`;
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiData)}`;
         const qrRes = await fetch(qrUrl);
         if (qrRes.ok) {
@@ -7625,6 +7638,25 @@ Schema:
                 <div style={{ gridColumn: "span 2" }}>
                   <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Remarks:</label>
                   <textarea style={{ ...S.input, height: 38, resize: "none" }} value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Internal remarks" />
+                </div>
+                <div style={{ gridColumn: "span 2" }}>
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Additional Notes (Printed on Invoice):</label>
+                  <textarea 
+                    style={{ ...S.input, height: 38, resize: "none" }} 
+                    value={additionalNotes} 
+                    onChange={e => setAdditionalNotes(e.target.value)} 
+                    placeholder="e.g. Inv No.: 24-25/9418..." 
+                  />
+                </div>
+                <div>
+                  <label style={{ ...S.label, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Old Dues Amount (₹):</label>
+                  <input 
+                    type="number" 
+                    style={S.input} 
+                    value={oldDuesAmount} 
+                    onChange={e => setOldDuesAmount(e.target.value)} 
+                    placeholder="0.00" 
+                  />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, gridColumn: "span 1" }}>
                   <input type="checkbox" id="credit-bill-chk" checked={creditBill} onChange={e => {

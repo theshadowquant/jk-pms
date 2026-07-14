@@ -724,8 +724,10 @@ function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
                 { text: "Terms and Conditions", bold: true, fontSize: 8.5, color: "#0A2342" },
                 { text: "1. Interest will be charged @24% P.A. if bill remains unpaid within due date.", fontSize: 7.5, margin: [0, 3, 0, 0] },
                 { text: "2. Subject To Ranebennur Jurisdictions.", fontSize: 7.5, margin: [0, 3, 0, 0] },
-                { text: "3. Medicines once sold are cannot be taken back (or) exchanged.", fontSize: 7.5, margin: [0, 3, 0, 0] }
-              ]
+                { text: "3. Medicines once sold are cannot be taken back (or) exchanged.", fontSize: 7.5, margin: [0, 3, 0, 0] },
+                bill.additionalNotes ? { text: "\nAdditional Notes", bold: true, fontSize: 8.5, color: "#92600A" } : null,
+                bill.additionalNotes ? { text: bill.additionalNotes, fontSize: 7.5, color: "#4A5568", margin: [0, 3, 0, 0] } : null
+              ].filter(Boolean)
             },
             {
               width: "40%",
@@ -734,7 +736,22 @@ function transformInvoiceToPDFBuffer(payload, callback, errCallback) {
                 { text: "Scan to pay via UPI", bold: true, fontSize: 8.5, color: "#0D7377" },
                 { text: "Maximum of 1 lakh can be transferred via upi in a single day", fontSize: 6.5, color: "#8A96A3", margin: [0, 1, 0, 4] },
                 qrCode ? { image: qrCode, width: 80, height: 80 } : { text: "[QR Code Not Available]", fontSize: 7.5 },
-                { text: "7676309842@jupiteraxis", fontSize: 7.5, bold: true, margin: [0, 4, 0, 0] }
+                { text: bill.storeUpiId || "7676309842@jupiteraxis", fontSize: 7.5, bold: true, margin: [0, 4, 0, 4] },
+                {
+                  canvas: [{ type: "line", x1: 0, y1: 0, x2: 120, y2: 0, lineWidth: 0.5, strokeColor: "#CBD5E0" }],
+                  margin: [0, 2, 0, 4]
+                },
+                {
+                  fontSize: 7.5,
+                  alignment: "left",
+                  margin: [20, 0, 0, 0],
+                  stack: [
+                    { text: `Total Bill: ₹${(bill.grandTotal || 0).toFixed(2)}` },
+                    { text: `Paid Amt:   ₹${(bill.amountPaid !== undefined ? bill.amountPaid : (bill.grandTotal || 0)).toFixed(2)}`, color: "#2E7D32" },
+                    { text: `Overdue:    ₹${(bill.overdueAmount || 0).toFixed(2)}`, color: (bill.overdueAmount || 0) > 0 ? "#C0392B" : "#4A5568", bold: (bill.overdueAmount || 0) > 0 },
+                    { text: `Scan Total: ₹${((bill.grandTotal || 0) + (bill.overdueAmount || 0)).toFixed(2)}`, bold: true, color: "#2E7D32", fontSize: 8 }
+                  ]
+                }
               ]
             }
           ],

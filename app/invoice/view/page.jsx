@@ -149,10 +149,12 @@ function InvoiceViewerContent() {
 
   const roundedGrandTotal = bill.grandTotal || roundPaisa(totalFinalAmt);
   const roundOffAmount = typeof bill.roundOff === "number" ? bill.roundOff : (roundedGrandTotal - totalFinalAmt);
+  const billOverdue = bill.overdueAmount || 0;
+  const scanTotal = roundedGrandTotal + billOverdue;
 
   const storeUpiId = bill.storeUpiId || "7676309842@jupiteraxis";
   const storePayeeName = encodeURIComponent(bill.storeName || "Pradhan Mantri Bharatiya Janaushadhi Kendra");
-  const upiPayUri = `upi://pay?pa=${storeUpiId}&pn=${storePayeeName}&am=${roundedGrandTotal.toFixed(2)}&cu=INR`;
+  const upiPayUri = `upi://pay?pa=${storeUpiId}&pn=${storePayeeName}&am=${scanTotal.toFixed(2)}&cu=INR`;
   const upiQrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiPayUri)}`;
 
   return (
@@ -302,6 +304,15 @@ function InvoiceViewerContent() {
             <div style={styles.termLine}>1. Interest will be charged @24% P.A. if bill remains unpaid within due date.</div>
             <div style={styles.termLine}>2. Subject To Ranebennur Jurisdictions.</div>
             <div style={styles.termLine}>3. Medicines once sold are cannot be taken back (or) exchanged.</div>
+            
+            {bill.additionalNotes && (
+              <div style={{ marginTop: 16, borderTop: "1.5px dashed #E2E8F0", paddingTop: 12 }}>
+                <div style={{ fontWeight: 700, fontSize: 12, color: "#92600A", marginBottom: 6 }}>Additional Notes</div>
+                <div style={{ fontSize: 11, color: "#4A5568", whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+                  {bill.additionalNotes}
+                </div>
+              </div>
+            )}
           </div>
           {/* Right Scan */}
           <div style={styles.qrBlock}>
@@ -330,6 +341,10 @@ function InvoiceViewerContent() {
                   <strong>₹{(bill.overdueAmount || 0).toFixed(2)}</strong>
                 </div>
               )}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginTop: 8, paddingTop: 8, borderTop: "1px dashed #ddd" }}>
+                <span style={{ fontWeight: 700, color: "#000" }}>Scan &amp; Pay Total:</span>
+                <strong style={{ color: "#2E7D32", fontSize: 13 }}>₹{scanTotal.toFixed(2)}</strong>
+              </div>
             </div>
           </div>
         </div>
