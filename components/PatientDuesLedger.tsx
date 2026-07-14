@@ -31,6 +31,7 @@ interface Patient {
   email?: string;
   outstandingDue: number;
   overdueAmount: number;
+  overdueDetails?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -119,7 +120,8 @@ export default function PatientDuesLedger({
     phone: "",
     email: "",
     outstandingDue: "0",
-    overdueAmount: "0"
+    overdueAmount: "0",
+    overdueDetails: ""
   });
   
   const [editPatientForm, setEditPatientForm] = useState<Patient | null>(null);
@@ -163,6 +165,7 @@ export default function PatientDuesLedger({
         email: newPatientForm.email.trim(),
         outstandingDue: parseFloat(newPatientForm.outstandingDue) || 0,
         overdueAmount: parseFloat(newPatientForm.overdueAmount) || 0,
+        overdueDetails: newPatientForm.overdueDetails.trim(),
         createdAt: serverTimestamp(),
         createdBy: user.uid,
         updatedAt: serverTimestamp()
@@ -174,7 +177,8 @@ export default function PatientDuesLedger({
         phone: "",
         email: "",
         outstandingDue: "0",
-        overdueAmount: "0"
+        overdueAmount: "0",
+        overdueDetails: ""
       });
       setShowAddModal(false);
     } catch (err: any) {
@@ -198,6 +202,7 @@ export default function PatientDuesLedger({
         email: editPatientForm.email || "",
         outstandingDue: editPatientForm.outstandingDue || 0,
         overdueAmount: editPatientForm.overdueAmount || 0,
+        overdueDetails: editPatientForm.overdueDetails || "",
         updatedAt: serverTimestamp()
       });
       
@@ -529,6 +534,16 @@ export default function PatientDuesLedger({
                   />
                 </FF>
               </div>
+              <div style={{ gridColumn: "span 2" }}>
+                <FF label="Overdue Breakdown Details (Printed on Invoice)">
+                  <textarea
+                    style={{ ...S.input, height: 65, resize: "none" }}
+                    placeholder="e.g. Inv No.: 24-25/9418\nLulicinazole 20 PCS * ₹55/- = ₹1100/-"
+                    value={newPatientForm.overdueDetails}
+                    onChange={e => setNewPatientForm(p => ({ ...p, overdueDetails: e.target.value }))}
+                  />
+                </FF>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -605,6 +620,16 @@ export default function PatientDuesLedger({
                     style={S.input}
                     value={editPatientForm.overdueAmount}
                     onChange={e => setEditPatientForm(p => p ? { ...p, overdueAmount: parseFloat(e.target.value) || 0 } : null)}
+                  />
+                </FF>
+              </div>
+              <div style={{ gridColumn: "span 2" }}>
+                <FF label="Overdue Breakdown Details (Printed on Invoice)">
+                  <textarea
+                    style={{ ...S.input, height: 65, resize: "none" }}
+                    placeholder="e.g. Inv No.: 24-25/9418\nLulicinazole 20 PCS * ₹55/- = ₹1100/-"
+                    value={editPatientForm.overdueDetails || ""}
+                    onChange={e => setEditPatientForm(p => p ? { ...p, overdueDetails: e.target.value } : null)}
                   />
                 </FF>
               </div>

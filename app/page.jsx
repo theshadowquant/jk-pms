@@ -1181,6 +1181,9 @@ export default function PharmacyApp() {
     if (activePatient) {
       if (!customerName) setCustomerName(activePatient.name);
       if (!customerEmail && activePatient.email) setCustomerEmail(activePatient.email);
+      if (activePatient.overdueDetails) {
+        setAdditionalNotes(activePatient.overdueDetails);
+      }
     }
   }, [activePatient, customerName, customerEmail]);
 
